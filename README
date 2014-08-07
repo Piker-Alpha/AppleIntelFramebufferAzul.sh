@@ -1,0 +1,35 @@
+**Download**
+
+You can download the latest revision of ssdtPRGen.sh by entering the following command in a terminal window:
+
+sudo curl -o ~/AppleIntelFramebufferAzul.sh https://raw.githubusercontent.com/Piker-Alpha/AppleIntelFramebufferAzul.sh/master/AppleIntelFramebufferAzul.sh
+
+That will download the file to your user directory. The next step is to change the file mode (+x) with: 
+ 
+chmod +x ~/AppleIntelFramebufferAzul.sh
+
+
+**Usage**
+
+Usage: sudo ~/AppleIntelFramebufferAzul.sh AAPL,ig-platform-id [dump|show|patch|replace|undo|restore] [TARGET_FILE]
+
+
+**Examples**
+
+
+~/AppleIntelFramebufferAzul.sh dump
+
+~/AppleIntelFramebufferAzul.sh 0x0d220003 show
+
+~/AppleIntelFramebufferAzul.sh 0x0d220003 patch
+
+~/AppleIntelFramebufferAzul.sh 0x0d220003 [undo or restore]
+
+
+**Bugs**
+
+All possible bugs (so called 'issues') should be filed at:
+
+https://github.com/Piker-Alpha/AppleIntelFramebufferAzul.sh/issues
+
+Please do **not** use my blog for this. Thank you!
