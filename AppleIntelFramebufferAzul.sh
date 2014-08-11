@@ -4,7 +4,7 @@
 # This script is a stripped/rewrite of AppleIntelSNBGraphicsFB.sh 
 #
 # Version 0.9 - Copyright (c) 2012 by † RevoGirl
-# Version 1.5 - Copyright (c) 2013 by Pike R. Alpha <PikeRAlpha@yahoo.com>
+# Version 1.7 - Copyright (c) 2013 by Pike R. Alpha <PikeRAlpha@yahoo.com>
 #
 #
 # Updates:
@@ -18,9 +18,12 @@
 #			- v1.6 adjustable framebuffer size (Pike, August 2014)
 #			-      askToReboot() was lost/added again (Pike, August 2014)
 #			-      dump now reads the correct [optional] file argument (Pike, August 2014)
+#			- v1.7 read LC_SYMTAB to get offset to _gPlatformInformationList i.e.
+#			-      dump now works <em>with</em> and <em>without</em> nm (Pike, August 2014)
+#			-      typo fixed, layout changes (whitespace) and other improvements (Pike, August 2014)
 #
 
-gScriptVersion=1.6
+gScriptVersion=1.7
 
 #
 # Setting the debug mode (default off).
@@ -69,12 +72,24 @@ TARGET_FILE="/System/Library/Extensions/AppleIntelFramebufferAzul.kext/Contents/
 let gExtraStyling=1
 
 #
+# LC_SYMTAB specific global varables.
+#
+let gSymbolTableOffset=0
+let gNumberOfSymbols=0
+let gStringTableOffset=0
+let gStringTableSize=0
+
+#
+# For internal debugging purposes only.
+#
+let USE_NM=1
+
+#
 # Output styling.
 #
 STYLE_RESET="[0m"
 STYLE_BOLD="[1m"
 STYLE_UNDERLINED="[4m"
-
 
 #
 #--------------------------------------------------------------------------------
@@ -119,7 +134,9 @@ function _PRINT_ERROR()
 }
 
 
+#
 #--------------------------------------------------------------------------------
+#
 
 function _initFactoryPlatformInfo()
 {
@@ -441,13 +458,16 @@ function _initFactoryPlatformInfo()
                 0000 0000 0000 0000 3200 0000 0e00 0000"
                 ;;
 
-    *) echo "Error: Unknown ID given – factory data missing!"
+    *) _PRINT_ERROR "Unknown ID given or factory data missing!\n"
        exit 1
        ;;
   esac
 }
 
+
+#
 #--------------------------------------------------------------------------------
+#
 
 function _initPatchedPlatformInfo()
 {
@@ -775,14 +795,31 @@ function _initPatchedPlatformInfo()
                 0000 0000 0000 0000 3200 0000 0e00 0000"
                 ;;
 
-    *) echo "Error: Unknown ID given – patched data missing!"
+    *) _PRINT_ERROR "Unknown ID given or patched data missing!\n"
        exit 1
        ;;
   esac
 }
 
 
+#
 #--------------------------------------------------------------------------------
+#
+
+function _reverseBytes()
+{
+  if [[ ${#1} -eq 8 ]];
+    then
+      echo 0x${1:6:2}${1:4:2}${1:2:2}${1:0:2}
+    else
+      echo 0x${1:14:2}${1:12:2}${1:10:2}${1:8:2}${1:6:2}${1:4:2}${1:2:2}${1:0:2}
+  fi
+}
+
+
+#
+#--------------------------------------------------------------------------------
+#
 
 function _readFile()
 {
@@ -793,35 +830,218 @@ function _readFile()
 }
 
 
+#
 #--------------------------------------------------------------------------------
+#
+
+function _getSizeOfLoadCommands()
+{
+  #
+  # Read first 32 bytes of target file.
+  #
+  local machHeaderData=$(_readFile 0 32)
+  #
+  # Reverse 8 bytes from character offset 40.
+  #
+  echo $(_reverseBytes ${machHeaderData:40:8})
+}
+
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _initSymbolTableVariables
+{
+  #
+  # Get size of load commands from the mach header.
+  #
+  let sizeOfLoadCommands=$(_getSizeOfLoadCommands)
+  #
+  # Raise with length of mach header
+  #
+  let sizeOfLoadCommands+=32
+  #
+  # Get loadCommand data, in postscript format, from target file.
+  #
+  local loadCommands=$(xxd -l $sizeOfLoadCommands -ps "$TARGET_FILE" | tr -d '\n')
+  #
+  #
+  #
+  let index=64
+  #
+  # Multiply size of loadComands by 2 (character format).
+  #
+  let sizeOfLoadCommands=($sizeOfLoadCommands*2)
+  #
+  # Define target command.
+  #
+  LC_SYMTAB=0x02000000
+  #
+  # Main loop, used to search for the "LC_SYMTAB" command.
+  #
+  while [ $index -lt $sizeOfLoadCommands ];
+    do
+      local command=0x${loadCommands:($index):8}
+
+      let commandSize=$(_reverseBytes ${loadCommands:($index+8):8})
+      #
+      # Is this our target command?
+      #
+      if [ $command == $LC_SYMTAB ];
+        then
+          #
+          # Yes it is. Init variables.
+          #
+          let gSymbolTableOffset=$(_reverseBytes ${loadCommands:($index+16):8})
+          let gNumberOfSymbols=$(_reverseBytes ${loadCommands:($index+24):8})
+          let gStringTableOffset=$(_reverseBytes ${loadCommands:($index+32):8})
+          let gStringTableSize=$(_reverseBytes ${loadCommands:($index+40):8})
+          return
+        else
+          #
+          # No. Not yet. Up index (times 2 for character format).
+          #
+          let index+=($commandSize*2)
+      fi
+    done
+
+  _PRINTF_ERROR "Failed to get LC_SYMTAB data!\n"
+  exit -1
+}
+
+
+#
+#--------------------------------------------------------------------------------
+#
 
 function _getConnectorTableOffset()
 {
-  local architecture="x86_64"
-
   #
   # Check if nm (part of Xcode/command line tools) is installed.
   #
-  if [[ -e /usr/bin/nm  ]];
+  if [[ -e /usr/bin/nm && $USE_NM -eq 1 ]];
     then
       #
       # Yes. Get offset to _gPlatformInformationList
       #
-      echo `nm -t d -Ps __DATA __data -arch $architecture "$TARGET_FILE" | grep '_gPlatformInformationList' | awk '{ print $3 }'`
+      let connectorTableOffset=$(nm -t d -Ps __DATA __data -arch "x86_64" "$TARGET_FILE" | grep '_gPlatformInformationList' | awk '{ print $3 }')
     else
       #
-      # No nm found. Error out.
+      # No. Use backed in NM 'replacment'.
       #
-      # TODO: Read symbol table to get the offset to _gPlatformInformationList
+      _initSymbolTableVariables
       #
-      _PRINT_ERROR "This options requires nm, install command line tools (Xcode)"
+      # Hex representation of "_gPlatformInformationList"
+      #
+      _gPlatformInformationList="5f67506c6174666f726d496e666f726d6174696f6e4c697374"
+      #
+      # Check for old dump file, remove it when found.
+      #
+      if [[ -e /tmp/stringTableData.txt ]];
+        then
+          rm /tmp/stringTableData.txt
+      fi
 
-      exit -1
+      xxd -s $gStringTableOffset -l $gStringTableSize -ps "$TARGET_FILE" | tr -d '\n' | sed "s/${_gPlatformInformationList}[0-9a-f]*//" > /tmp/stringTableData.txt
+      #
+      # Stat filesize from file.
+      #
+      let fileSize=$(stat -f %z /tmp/stringTableData.txt)
+      #
+      # Check filesize (0 would be a failure).
+      #
+      if [[ -s /tmp/stringTableData.txt ]];
+        then
+          #
+          # Convert number of characters to number of bytes.
+          #
+          let fileSize/=2
+          #
+          # Set offset to _gPlatformInformationList in the String Table
+          #
+          let offset=$gStringTableOffset+$fileSize
+          #
+          # Checking offset.
+          #                                                                         123456789 123456789 12345
+          #                                                            (underscore) _
+          #
+          if [[ $(xxd -s $offset -l 25 -c 25 "$TARGET_FILE" | sed -e 's/.*_//g') == "gPlatformInformationList" ]];
+            then
+              #
+              # Set start position.
+              #
+              let start=$gSymbolTableOffset
+              #
+              # Set length (16-bytes per symbol) and symbolTableEnd.
+              #
+              let length=($gNumberOfSymbols*16)
+              let symbolTableEnd=$gSymbolTableOffset+$length
+              #
+              # Main loop.
+              #
+              while [ $start -lt $symbolTableEnd ];
+              do
+                #
+                # Read 8KB chunk from the AppleIntelFramebufferAzul binary.
+                #
+                _DEBUG_PRINT "Reading 8192 bytes @ 0x%08x from AppleIntelFramebufferAzul\n" $start
+                local symbolTableData=$(xxd -s $start -l 8192 -ps "$TARGET_FILE" | tr -d '\n')
+                #
+                # Reinit index.
+                #
+                let index=0
+                #
+                # Secondary loop.
+                #
+                while [ $index -lt 8192 ];
+                do
+                  let stringTableIndex=$(_reverseBytes ${symbolTableData:($index):8})
+                  let currentAddress=$gStringTableOffset+$stringTableIndex
+                  #
+                  # Is this our target?
+                  #
+                  if [[ $offset -eq $currentAddress ]];
+                    then
+                      #
+                      # Yes it is. Init connectorTableOffset.
+                      #
+                      let connectorTableOffset=$(_reverseBytes ${symbolTableData:($index+16):8})
+                      #
+                      # Convert number of characters to number of bytes.
+                      #
+                      let index/=2
+                      let stringTableOffset=$start+$index
+
+                      _DEBUG_PRINT "Offset $connectorTableOffset to _gPlatformInformationList found @ 0x%08x/$stringTableOffset!\n" $stringTableOffset
+                      #
+                      # Done.
+                      #
+                      return
+                    else
+                      #
+                      # Next symbol (16 bytes/32 characters).
+                      #
+                      let index+=32
+                  fi
+                done
+                #
+                # Next chunk.
+                #
+                let start+=8192
+
+              done
+            else
+              _PRINT_ERROR "Failed to obtain offset to _gPlatformInformationList!\n"
+          fi
+      fi
   fi
 }
 
 
+#
 #--------------------------------------------------------------------------------
+#
 
 function _dumpConnectorData()
 {
@@ -843,19 +1063,19 @@ function _dumpConnectorData()
         else
           printf "\n"
       fi
-
 	done
 
   printf "                ;;\n\n"
 }
 
 
+#
 #--------------------------------------------------------------------------------
+#
 
 function _getConnectorTableData()
 {
-  let connectorTableOffset=$(_getConnectorTableOffset)
-
+  _getConnectorTableOffset
   _DEBUG_PRINT "connectorTableOffset: $connectorTableOffset\n"
 
   local platformID=0
@@ -864,13 +1084,12 @@ function _getConnectorTableData()
   #
   # Dump connector table data.
   #
-  while [ "$platformID" != "ffffffff" ];
+  while [ "$platformID" != "0xffffffff" ];
     do
       local connectorTableData=$(_readFile $index $gDataBytes)
+      local platformID=$(_reverseBytes ${connectorTableData:0:8})
 
-      local platformID=${connectorTableData:6:2}${connectorTableData:4:2}${connectorTableData:2:2}${connectorTableData:0:2}
-
-      if [ "$platformID" != "ffffffff" ];
+      if [ "$platformID" != "0xffffffff" ];
         then
           _dumpConnectorData $platformID $connectorTableData
 
@@ -879,20 +1098,23 @@ function _getConnectorTableData()
           return
       fi
     done
-
 }
 
 
+#
 #--------------------------------------------------------------------------------
+#
 
 function _getDataSegmentOffset()
 {
-  __dataMatch=($(echo `xxd -l 1024 -c 16 "$TARGET_FILE" | grep __data | tr ':' ' '`))
-  let __dataOffset="0x$__dataMatch"+16
+  local __DATA=5f5f44415441
 
+  __dataMatch=($(echo `xxd -l 1024 -c 16 "$TARGET_FILE" | grep __data | tr ':' ' '`))
+
+  let __dataOffset="0x$__dataMatch"+16
   __DataMatch=$(echo `xxd -s+$__dataOffset -l 6 -ps "$TARGET_FILE"`)
 
-  if [[ $__DataMatch == 5f5f44415441 ]];
+  if [[ $__DataMatch == $__DATA ]];
     then
       let __dataOffset+=16
       data=$(echo `xxd -s+$__dataOffset -l 4 -ps "$TARGET_FILE"`)
@@ -909,47 +1131,47 @@ function _getDataSegmentOffset()
 }
 
 
+#
 #--------------------------------------------------------------------------------
+#
 
 function _getOffset()
 {
   _getDataSegmentOffset
-
+  #
+  # Not used: too slow without nm.
+  #
+  # _getConnectorTableOffset
   platformIDString="${id:8:2}${id:6:2} ${id:4:2}${id:2:2}"
 
-  printf "platformIDString: $platformIDString\n"
+  _DEBUG_PRINT "platformIDString: $platformIDString\n"
 
-  matchingData=$(xxd -s +$dataSegmentOffset -l $dataSegmentLength "$TARGET_FILE" | grep "$platformIDString" | tr ':' ' ')
+  matchingData=$(xxd -s +$dataSegmentOffset -l $dataSegmentLength "$TARGET_FILE" | grep "$platformIDString" | tr -d ':')
+  #
+  # Not used: too slow without nm.
+  #
+  # matchingData=$(xxd -s $connectorTableOffset -l 4096 "$TARGET_FILE" | grep "$platformIDString" | tr -d ':')
 
   data=($matchingData);
   let fileOffset="0x${data[0]}"
 
-  targetID="${id:8:2}${id:6:2}${id:4:2}${id:2:2}"
-
-  let end=$fileOffset+0x10
-
-  while [ $fileOffset -lt $end ];
-    do
-      bytes=$(xxd -s +$fileOffset -l 4 -ps "$TARGET_FILE")
-
-      if [ $bytes == $targetID ];
-        then
-          echo "\nAAPL,ig-platform-id: $id located @ $fileOffset"
-          return;
-        else
-          let fileOffset+=1
-      fi
-    done
-
-  if [[ $fileOffset -eq $end ]];
+  if [ "$platformIDString" == "${data[1]} ${data[2]}" ];
     then
+      echo "\nAAPL,ig-platform-id: $id located @ $fileOffset"
+      #
+      # Done.
+      #
+      return;
+    else
       _PRINT_ERROR "AAPL,ig-platform-id: $id NOT found! Aborting ...\n\n"
       exit 1
   fi
 }
 
 
+#
 #--------------------------------------------------------------------------------
+#
 
 function _toLowerCase()
 {
@@ -957,7 +1179,9 @@ function _toLowerCase()
 }
 
 
+#
 #--------------------------------------------------------------------------------
+#
 
 function _fileExists()
 {
@@ -971,19 +1195,23 @@ function _fileExists()
 }
 
 
+#
 #--------------------------------------------------------------------------------
+#
 
 function _askToReboot()
 {
-  read -p "\nDo you want to reboot now? (y/n) " rebootChoice
+  read -p "Do you want to reboot now? (y/n) " rebootChoice
   case "$rebootChoice" in
-    y/Y ) reboot now
+    y|Y ) reboot now
           ;;
   esac
 }
 
 
+#
 #--------------------------------------------------------------------------------
+#
 
 function _main()
 {
