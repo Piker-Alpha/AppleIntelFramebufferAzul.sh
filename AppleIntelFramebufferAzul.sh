@@ -15,14 +15,41 @@
 #			- v1.4 asks to reboot (Pike, June 2014)
 #			- v1.5 table data dumper added (Pike, August 2014)
 #			-      table data replaced with that of Yosemite DP5 (Pike, August 2014)
+#			- v1.6 adjustable framebuffer size (Pike, August 2014)
+#			-      askToReboot() was lost/added again (Pike, August 2014)
+#			-      dump now reads the correct [optional] file argument (Pike, August 2014)
 #
 
-gScriptVersion=1.5
+gScriptVersion=1.6
 
 #
 # Setting the debug mode (default off).
 #
 let DEBUG=0
+
+#
+# Number of bytes in a row
+#
+# Note: Do NOT change this!
+#
+let gBytesPerRow=16
+
+#
+# Number of rows in a framebuffer table
+#
+# Lion          = 7
+# Mountain Lion = 7
+# Mavericks     = 8
+# Yosemite      = 8
+#
+let gRowsInTable=8
+
+#
+# Number of bytes in a framebuffer table
+#
+# Note: Do NOT change this!
+#
+let gDataBytes=($gBytesPerRow*$gRowsInTable)
 
 #
 # Giving $# a name.
@@ -99,6 +126,11 @@ function _initFactoryPlatformInfo()
   #
   # Do NOT change this data. It is used to restore the factory data!
   #
+  # 1.) Run the following command to extract data from the kext
+  #
+  #      ./AppleIntelFramebufferAzul.sh dump
+  #
+  # 2.) Paste the data into this script
 
   case "$id" in
     #
@@ -773,15 +805,18 @@ function _getConnectorTableOffset()
   if [[ -e /usr/bin/nm  ]];
     then
       #
-      # Yes. Get offset to
+      # Yes. Get offset to _gPlatformInformationList
       #
       echo `nm -t d -Ps __DATA __data -arch $architecture "$TARGET_FILE" | grep '_gPlatformInformationList' | awk '{ print $3 }'`
     else
       #
-      # No.
+      # No nm found. Error out.
+      #
+      # TODO: Read symbol table to get the offset to _gPlatformInformationList
       #
       _PRINT_ERROR "This options requires nm, install command line tools (Xcode)"
-      echo 0
+
+      exit -1
   fi
 }
 
@@ -791,17 +826,18 @@ function _getConnectorTableOffset()
 function _dumpConnectorData()
 {
   local let offset=0
+  let characters=($gDataBytes*2)
 
   printf "    0x$1) FACTORY_PLATFORM_INFO=\"0:\n"
 
-  while [ $offset -lt 256 ];
+  while [ $offset -lt $characters ];
     do
       printf "                "
       printf "${2:$offset:4} ${2:($offset+4):4} ${2:($offset+8):4} ${2:($offset+12):4} "
       printf "${2:($offset+16):4} ${2:($offset+20):4} ${2:($offset+24):4} ${2:($offset+28):4}"
       let offset+=32
 
-      if [ $offset -eq 256 ];
+      if [ $offset -eq $characters ];
         then
           printf "\"\n"
         else
@@ -830,7 +866,7 @@ function _getConnectorTableData()
   #
   while [ "$platformID" != "ffffffff" ];
     do
-      local connectorTableData=$(_readFile $index 128)
+      local connectorTableData=$(_readFile $index $gDataBytes)
 
       local platformID=${connectorTableData:6:2}${connectorTableData:4:2}${connectorTableData:2:2}${connectorTableData:0:2}
 
@@ -838,7 +874,7 @@ function _getConnectorTableData()
         then
           _dumpConnectorData $platformID $connectorTableData
 
-          let index+=128
+          let index+=$gDataBytes
         else
           return
       fi
@@ -923,6 +959,32 @@ function _toLowerCase()
 
 #--------------------------------------------------------------------------------
 
+function _fileExists()
+{
+  if [ -e "$1" ];
+    then
+      echo 1 # "File exists"
+    else
+      _PRINT_ERROR "File does not exist!\n"
+      exit -1
+  fi
+}
+
+
+#--------------------------------------------------------------------------------
+
+function _askToReboot()
+{
+  read -p "\nDo you want to reboot now? (y/n) " rebootChoice
+  case "$rebootChoice" in
+    y/Y ) reboot now
+          ;;
+  esac
+}
+
+
+#--------------------------------------------------------------------------------
+
 function _main()
 {
   clear
@@ -973,6 +1035,7 @@ function _main()
               echo "\nWarning: Nothing to patch - factory/patched data is the same!\n"
             else
               echo $PATCHED_PLATFORM_INFO | xxd -c 128 -r | dd of="$TARGET_FILE" bs=1 seek=${fileOffset} conv=notrunc
+              _askToReboot
           fi
       fi
 
@@ -989,6 +1052,7 @@ function _main()
               echo "\nWarning: Nothing to patch - factory/patched data is the same!\n"
             else
               echo $FACTORY_PLATFORM_INFO | xxd -c 128 -r | dd of="$TARGET_FILE" bs=1 seek=${fileOffset} conv=notrunc
+              _askToReboot
           fi
       fi
     else
@@ -1007,13 +1071,20 @@ if [ $gNumberOfArguments -eq 0 ];
     echo "Usage: sudo $0 AAPL,ig-platform-id [dump|show|patch|replace|undo|restore] [TARGET_FILE]"
     exit 1
   else
+    id=$(_toLowerCase $1)
 
-
-    if [[ $gNumberOfArguments -eq 1 && "$1" == "dump" ]];
+    if [ "$id" == "dump" ];
       then
         action=$(_toLowerCase $1)
+
+        if [ $gNumberOfArguments -eq 2 ];
+          then
+            if [[ $(_fileExists "$2") -eq 1 ]];
+              then
+                TARGET_FILE="$2"
+            fi
+        fi
       else
-        id=$(_toLowerCase $1)
         action=$(_toLowerCase $2)
 
         if [ $gNumberOfArguments -eq 3 ];

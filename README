@@ -1,4 +1,4 @@
-**Download**
+*** Download ***
 
 You can download the latest revision of ssdtPRGen.sh by entering the following command in a terminal window:
 
@@ -9,24 +9,35 @@ That will download the file to your user directory. The next step is to change t
 chmod +x ~/AppleIntelFramebufferAzul.sh
 
 
-**Usage**
+*** Usage ***
 
 Usage: sudo ~/AppleIntelFramebufferAzul.sh AAPL,ig-platform-id [dump|show|patch|replace|undo|restore] [TARGET_FILE]
 
 
-**Examples**
+*** Examples ***
 
 
-~/AppleIntelFramebufferAzul.sh dump
+~/AppleIntelFramebufferAzul.sh dump [TARGET_FILE]
 
-~/AppleIntelFramebufferAzul.sh 0x0d220003 show
+~/AppleIntelFramebufferAzul.sh 0x0d220003 show [TARGET_FILE]
 
-~/AppleIntelFramebufferAzul.sh 0x0d220003 patch
+~/AppleIntelFramebufferAzul.sh 0x0d220003 patch [TARGET_FILE]
 
-~/AppleIntelFramebufferAzul.sh 0x0d220003 [undo or restore]
+~/AppleIntelFramebufferAzul.sh 0x0d220003 [undo or restore] [TARGET_FILE]
 
 
-**Bugs**
+Note: TARGET_FILE can be:
+
+~/Desktop/OS\ X\ 10.10/DP5/E*/AppleIntelFramebufferAzul.kext/C*/M*/AppleIntelFramebufferAzul
+
+or:
+
+'/Users/Pike/Desktop/OS\ X\ 10.10/DP5/E*/AppleIntelFramebufferAzul.kext/C*/M*/AppleIntelFramebufferAzul'
+
+Do not use double quotes (") because they are not supported!
+
+
+*** Bugs ***
 
 All possible bugs (so called 'issues') should be filed at:
 
