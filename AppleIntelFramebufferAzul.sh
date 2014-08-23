@@ -4,7 +4,7 @@
 # This script is a stripped/rewrite of AppleIntelSNBGraphicsFB.sh 
 #
 # Version 0.9 - Copyright (c) 2012 by † RevoGirl
-# Version 1.7 - Copyright (c) 2013 by Pike R. Alpha <PikeRAlpha@yahoo.com>
+# Version 1.8 - Copyright (c) 2013 by Pike R. Alpha <PikeRAlpha@yahoo.com>
 #
 #
 # Updates:
@@ -21,9 +21,10 @@
 #			- v1.7 read LC_SYMTAB to get offset to _gPlatformInformationList i.e.
 #			-      dump now works <em>with</em> and <em>without</em> nm (Pike, August 2014)
 #			-      typo fixed, layout changes (whitespace) and other improvements (Pike, August 2014)
+#			- v1.8 fixed a small error (0x0x instead of 0x) in _dumpConnectorData (Pike, August 2014)
 #
 
-gScriptVersion=1.7
+gScriptVersion=1.8
 
 #
 # Setting the debug mode (default off).
@@ -1048,7 +1049,7 @@ function _dumpConnectorData()
   local let offset=0
   let characters=($gDataBytes*2)
 
-  printf "    0x$1) FACTORY_PLATFORM_INFO=\"0:\n"
+  printf "    $1) FACTORY_PLATFORM_INFO=\"0:\n"
 
   while [ $offset -lt $characters ];
     do
