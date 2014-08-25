@@ -1,6 +1,6 @@
 *** Download ***
 
-You can download the latest revision of ssdtPRGen.sh by entering the following command in a terminal window:
+You can download the latest revision of AppleIntelFramebufferAzul.sh by entering the following command in a terminal window:
 
 sudo curl -o ~/AppleIntelFramebufferAzul.sh https://raw.githubusercontent.com/Piker-Alpha/AppleIntelFramebufferAzul.sh/master/AppleIntelFramebufferAzul.sh
 
@@ -24,6 +24,14 @@ Usage: sudo ~/AppleIntelFramebufferAzul.sh AAPL,ig-platform-id [dump|show|patch|
 ~/AppleIntelFramebufferAzul.sh 0x0d220003 patch [TARGET_FILE]
 
 ~/AppleIntelFramebufferAzul.sh 0x0d220003 [undo or restore] [TARGET_FILE]
+
+
+*** Version 1.9 adds Capri support ***
+
+1.) Rename AppleIntelFramebufferAzul.sh to AppleIntelFramebufferCapri.sh
+2.) Run AppleIntelFramebufferCapri.sh dump
+3.) Replace FACTORY_PLATFORM_INFO and PATCHED_PLATFORM_INFO with the new data
+4.) Patch your target data and run AppleIntelFramebufferCapri.sh 0xNNNNNNNN patch
 
 
 Note: TARGET_FILE can be:

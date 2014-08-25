@@ -4,27 +4,34 @@
 # This script is a stripped/rewrite of AppleIntelSNBGraphicsFB.sh 
 #
 # Version 0.9 - Copyright (c) 2012 by † RevoGirl
-# Version 1.8 - Copyright (c) 2013 by Pike R. Alpha <PikeRAlpha@yahoo.com>
+# Version 1.9 - Copyright (c) 2013 by Pike R. Alpha <PikeRAlpha@yahoo.com>
 #
 #
 # Updates:
-#			- v1.0 no longer requires/calls nm (Pike, August 2013)
-#			- v1.1 no longer requires/calls otool (Pike, August 2013)
-#			- v1.2 cleanups (Pike, August 2013)
-#			- v1.3 support for optional filename added (Pike, October 2013)
-#			- v1.4 asks to reboot (Pike, June 2014)
-#			- v1.5 table data dumper added (Pike, August 2014)
-#			-      table data replaced with that of Yosemite DP5 (Pike, August 2014)
-#			- v1.6 adjustable framebuffer size (Pike, August 2014)
-#			-      askToReboot() was lost/added again (Pike, August 2014)
-#			-      dump now reads the correct [optional] file argument (Pike, August 2014)
-#			- v1.7 read LC_SYMTAB to get offset to _gPlatformInformationList i.e.
-#			-      dump now works <em>with</em> and <em>without</em> nm (Pike, August 2014)
-#			-      typo fixed, layout changes (whitespace) and other improvements (Pike, August 2014)
-#			- v1.8 fixed a small error (0x0x instead of 0x) in _dumpConnectorData (Pike, August 2014)
+#			- v1.0	no longer requires/calls nm (Pike, August 2013)
+#			- v1.1	no longer requires/calls otool (Pike, August 2013)
+#			- v1.2	cleanups (Pike, August 2013)
+#			- v1.3	support for optional filename added (Pike, October 2013)
+#			- v1.4	asks to reboot (Pike, June 2014)
+#			- v1.5	table data dumper added (Pike, August 2014)
+#			-		table data replaced with that of Yosemite DP5.
+#			- v1.6	adjustable framebuffer size (Pike, August 2014)
+#			-		askToReboot() was lost/added again.
+#			-		dump now reads the correct [optional] file argument.
+#			- v1.7	read LC_SYMTAB to get offset to _gPlatformInformationList i.e.
+#			-		dump now works <em>with</em> and <em>without</em> nm.
+#			-		typo fixed, layout changes (whitespace) and other improvements.
+#			- v1.8	fixed a small error (0x0x instead of 0x) in _dumpConnectorData (Pike, August 2014)
+#			- v1.9	'show' argument is now optional (Pike, August 2014)
+#			-		code moved to a new function called _patchFile
+#			-		done some cleanups and a few cosmetic only changes.
+#			-		note added about where/what to do when the data is unchanged.
+#			-		function _checkDataLength added.
+#			-		moved PATCHED_PLATFORM_INFO to above FACTORY_PLATFORM_INFO (easier to make changes).
+#			-		renaming script to AppleIntelFramebufferCapri.sh adds capri support.
 #
 
-gScriptVersion=1.8
+gScriptVersion=1.9
 
 #
 # Setting the debug mode (default off).
@@ -39,21 +46,26 @@ let DEBUG=0
 let gBytesPerRow=16
 
 #
-# Number of rows in a framebuffer table
+# Default number of rows in a framebuffer table
 #
-# Lion          = 7
-# Mountain Lion = 7
-# Mavericks     = 8
-# Yosemite      = 8
+# Lion			= 7
+# Mountain Lion	= 7
+# Mavericks		= 8
+# Yosemite		= 8
 #
 let gRowsInTable=8
 
 #
-# Number of bytes in a framebuffer table
+# Default number of bytes in a framebuffer table
 #
 # Note: Do NOT change this!
 #
 let gDataBytes=($gBytesPerRow*$gRowsInTable)
+
+#
+# The version info of the running system i.e. '10.9.2'
+#
+gProductVersion="$(sw_vers -productVersion)"
 
 #
 # Giving $# a name.
@@ -91,6 +103,7 @@ let USE_NM=1
 STYLE_RESET="[0m"
 STYLE_BOLD="[1m"
 STYLE_UNDERLINED="[4m"
+
 
 #
 #--------------------------------------------------------------------------------
@@ -139,330 +152,18 @@ function _PRINT_ERROR()
 #--------------------------------------------------------------------------------
 #
 
-function _initFactoryPlatformInfo()
+function _checkDataLength()
 {
-  #
-  # Do NOT change this data. It is used to restore the factory data!
-  #
-  # 1.) Run the following command to extract data from the kext
-  #
-  #      ./AppleIntelFramebufferAzul.sh dump
-  #
-  # 2.) Paste the data into this script
+  local data=$(echo "$1" | tr -d ' \a\b\f\n\r\t\v')
 
-  case "$id" in
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x0c060000) FACTORY_PLATFORM_INFO="0:
-                0000 060c 0003 0303 0000 0004 0000 0001
-                0000 f000 0000 0040 9914 0000 9914 0000
-                0000 0000 0000 0000 0000 0800 0200 0000
-                3000 0000 0105 0900 0400 0000 0400 0000
-                0204 0900 0008 0000 8200 0000 ff00 0000
-                0100 0000 4000 0000 0400 0000 0000 0700
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 0000 0000 0000 0000"
-                ;;
+  _DEBUG_PRINT "Length of $2_PLATFORM_INFO: ${#data}\n"
 
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x0c160000) FACTORY_PLATFORM_INFO="0:
-                0000 160c 0003 0303 0000 0004 0000 0001
-                0000 f000 0000 0040 9914 0000 9914 0000
-                0000 0000 0000 0000 0000 0800 0200 0000
-                3000 0000 0105 0900 0400 0000 0400 0000
-                0204 0900 0008 0000 8200 0000 ff00 0000
-                0100 0000 4000 0000 0400 0000 0000 0700
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 0000 0000 0000 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x0c260000) FACTORY_PLATFORM_INFO="0:
-                0000 260c 0003 0303 0000 0004 0000 0001
-                0000 f000 0000 0040 9914 0000 9914 0000
-                0000 0000 0000 0000 0000 0800 0200 0000
-                3000 0000 0105 0900 0400 0000 0400 0000
-                0204 0900 0008 0000 8200 0000 ff00 0000
-                0100 0000 4000 0000 0400 0000 0000 0700
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 0000 0000 0000 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x04060000) FACTORY_PLATFORM_INFO="0:
-                0000 0604 0003 0303 0000 0004 0000 0001
-                0000 f000 0000 0040 9914 0000 9914 0000
-                0000 0000 0000 0000 0000 0800 0200 0000
-                3000 0000 0105 0900 0400 0000 0400 0000
-                0204 0900 0008 0000 8200 0000 ff00 0000
-                0100 0000 4000 0000 0400 0000 0000 0700
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 0000 0000 0000 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x04160000) FACTORY_PLATFORM_INFO="0:
-                0000 1604 0003 0303 0000 0004 0000 0001
-                0000 f000 0000 0040 9914 0000 9914 0000
-                0000 0000 0000 0000 0000 0800 0200 0000
-                3000 0000 0105 0900 0400 0000 0400 0000
-                0204 0900 0008 0000 8200 0000 ff00 0000
-                0100 0000 4000 0000 0400 0000 0000 0700
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 0000 0000 0000 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x04260000) FACTORY_PLATFORM_INFO="0:
-                0000 2604 0003 0303 0000 0004 0000 0001
-                0000 f000 0000 0040 9914 0000 9914 0000
-                0000 0000 0000 0000 0000 0800 0200 0000
-                3000 0000 0105 0900 0400 0000 0400 0000
-                0204 0900 0008 0000 8200 0000 ff00 0000
-                0100 0000 4000 0000 0400 0000 0000 0700
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 0000 0000 0000 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x0d260000) FACTORY_PLATFORM_INFO="0:
-                0000 260d 0003 0303 0000 0004 0000 0001
-                0000 f000 0000 0040 9914 0000 9914 0000
-                0000 0000 0000 0000 0000 0800 0200 0000
-                3000 0000 0105 0900 0400 0000 0400 0000
-                0204 0900 0008 0000 8200 0000 ff00 0000
-                0100 0000 4000 0000 0400 0000 0000 0700
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 0000 0000 0000 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x0a160000) FACTORY_PLATFORM_INFO="0:
-                0000 160a 0003 0303 0000 0004 0000 0001
-                0000 f000 0000 0040 d90a 0000 d90a 0000
-                0000 0000 0000 0000 0000 0800 0200 0000
-                3000 0000 0105 0900 0400 0000 0400 0000
-                0204 0900 0008 0000 8200 0000 ff00 0000
-                0100 0000 4000 0000 0400 0000 0000 0700
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 0000 0000 0000 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x0a260000) FACTORY_PLATFORM_INFO="0:
-                0000 260a 0003 0303 0000 0004 0000 0001
-                0000 f000 0000 0040 d90a 0000 d90a 0000
-                0000 0000 0000 0000 0000 0800 0200 0000
-                3000 0000 0105 0900 0400 0000 0400 0000
-                0204 0900 0008 0000 8200 0000 ff00 0000
-                0100 0000 4000 0000 0400 0000 0000 0700
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 0000 0000 0000 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x0a260005) FACTORY_PLATFORM_INFO="0:
-                0500 260a 0103 0303 0000 0002 0000 3001
-                0000 5000 0000 0060 d90a 0000 d90a 0000
-                0000 0000 0000 0000 0000 0800 0200 0000
-                3000 0000 0105 0900 0004 0000 8700 0000
-                0204 0900 0004 0000 8700 0000 ff00 0000
-                0100 0000 4000 0000 0f00 0000 0101 0000
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 0000 0000 0e00 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x0a260006) FACTORY_PLATFORM_INFO="0:
-                0600 260a 0103 0303 0000 0002 0000 3001
-                0000 6000 0000 0060 d90a 0000 d90a 0000
-                0000 0000 0000 0000 0000 0800 0200 0000
-                3000 0000 0105 0900 0004 0000 8700 0000
-                0204 0900 0004 0000 8700 0000 ff00 0000
-                0100 0000 4000 0000 0f00 0000 0101 0000
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 0000 0000 0e00 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x0a2e0008) FACTORY_PLATFORM_INFO="0:
-                0800 2e0a 0103 0303 0000 0004 0000 2002
-                0000 5001 0000 0060 6c05 0000 6c05 0000
-                0000 0000 0000 0000 0000 0800 0200 0000
-                3000 0000 0105 0900 0004 0000 0701 0000
-                0204 0a00 0004 0000 0701 0000 ff00 0000
-                0100 0000 4000 0000 1e00 0000 0505 0901
-                0000 0000 0000 0000 8076 0400 0000 0000
-                c07f 0400 0000 0000 3200 0000 0000 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x0a16000c) FACTORY_PLATFORM_INFO="0:
-                0c00 160a 0103 0303 0000 0004 0000 2002
-                0000 5001 0000 0060 6c05 0000 6c05 0000
-                0000 0000 0000 0000 0000 0800 0200 0000
-                3000 0000 0105 0900 0004 0000 0701 0000
-                0204 0a00 0004 0000 0701 0000 ff00 0000
-                0100 0000 4000 0000 1e00 0000 0505 0901
-                0000 0000 0000 0000 8076 0400 0000 0000
-                c07f 0400 0000 0000 3200 0000 0000 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x0d260007) FACTORY_PLATFORM_INFO="0:
-                0700 260d 0103 0403 0000 0004 0000 2002
-                0000 5001 0000 0060 a107 0000 a107 0000
-                0000 0000 0000 0000 0000 0800 0200 0000
-                3000 0000 0105 0b00 0004 0000 0701 0000
-                0204 0b00 0004 0000 0701 0000 0306 0300
-                0008 0000 0600 0000 1e03 0000 0505 0900
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 3200 0000 0e00 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x0d220003) FACTORY_PLATFORM_INFO="0:
-                0300 220d 0003 0303 0000 0002 0000 3001
-                0000 0000 0000 0060 9914 0000 9914 0000
-                0000 0000 0000 0000 0105 0900 0004 0000
-                8700 0000 0204 0a00 0004 0000 8700 0000
-                0306 0800 0004 0000 1100 0000 ff00 0000
-                0100 0000 4000 0000 0200 0000 0101 0000
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 0000 0000 0e00 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x0a2e000a) FACTORY_PLATFORM_INFO="0:
-                0a00 2e0a 0003 0303 0000 0002 0000 3001
-                0000 9000 0000 0060 9914 0000 9914 0000
-                0000 0000 0000 0000 0000 0800 0200 0000
-                1100 0000 0105 0900 0004 0000 8700 0000
-                0204 0a00 0004 0000 8700 0000 ff00 0000
-                0100 0000 4000 0000 d600 0000 0505 0000
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 0000 0000 0e00 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x0a26000a) FACTORY_PLATFORM_INFO="0:
-                0a00 260a 0003 0303 0000 0002 0000 3001
-                0000 9000 0000 0060 9914 0000 9914 0000
-                0000 0000 0000 0000 0000 0800 0200 0000
-                1100 0000 0105 0900 0004 0000 8700 0000
-                0204 0a00 0004 0000 8700 0000 ff00 0000
-                0100 0000 4000 0000 d600 0000 0505 0000
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 0000 0000 0e00 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x0a2e000d) FACTORY_PLATFORM_INFO="0:
-                0d00 2e0a 0003 0202 0000 0006 0000 2002
-                0000 2002 0000 0060 9914 0000 9914 0000
-                0000 0000 0000 0000 0105 0900 0004 0000
-                0701 0000 0204 0a00 0004 0000 0701 0000
-                ff00 0000 0100 0000 4000 0000 0000 0000
-                0000 0000 0000 0000 8e04 0000 0005 0500
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 0000 0000 0e00 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x0a26000d) FACTORY_PLATFORM_INFO="0:
-                0d00 260a 0003 0202 0000 0006 0000 2002
-                0000 2002 0000 0060 9914 0000 9914 0000
-                0000 0000 0000 0000 0105 0900 0004 0000
-                0701 0000 0204 0a00 0004 0000 0701 0000
-                ff00 0000 0100 0000 4000 0000 0000 0000
-                0000 0000 0000 0000 8e04 0000 0005 0500
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 0000 0000 0e00 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x04120004) FACTORY_PLATFORM_INFO="0:
-                0400 1204 0000 0000 0000 0002 0000 0000
-                0000 0000 0000 0010 0000 0000 0000 0000
-                0000 0000 0000 0000 ff00 0000 0100 0000
-                4000 0000 ff00 0000 0100 0000 4000 0000
-                ff00 0000 0100 0000 4000 0000 ff00 0000
-                0100 0000 4000 0000 0000 0000 0000 0000
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 0000 0000 0000 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x0412000b) FACTORY_PLATFORM_INFO="0:
-                0b00 1204 0000 0000 0000 0002 0000 0000
-                0000 0000 0000 0010 0000 0000 0000 0000
-                0000 0000 0000 0000 ff00 0000 0100 0000
-                4000 0000 ff00 0000 0100 0000 4000 0000
-                ff00 0000 0100 0000 4000 0000 ff00 0000
-                0100 0000 4000 0000 0000 0000 0000 0000
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 0000 0000 0000 0000"
-                ;;
-
-    #
-    # OS X 10.10 Build 14A314h (Developer Preview 5)
-    #
-    0x0d260009) FACTORY_PLATFORM_INFO="0:
-                0900 260d 0103 0101 0000 0004 0000 2002
-                0000 5001 0000 0060 a107 0000 a107 0000
-                0000 0000 0000 0000 0000 0800 0200 0000
-                3000 0000 ff00 0000 0100 0000 4000 0000
-                ff00 0000 0100 0000 4000 0000 ff00 0000
-                0100 0000 4000 0000 1e00 0000 0505 0900
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000 3200 0000 0e00 0000"
-                ;;
-
-    *) _PRINT_ERROR "Unknown ID given or factory data missing!\n"
-       exit 1
-       ;;
-  esac
+  if [[ ${#data} -ne $gDataBytes*2+2 ]];
+    then
+      _PRINT_ERROR "$id) $2_PLATFORM_INFO=\"0:... must be ${gDataBytes} bytes!\n" ${#data}
+      printf      "       Tip: Do not add comments to the data sections!\n\n"
+      exit -1
+  fi
 }
 
 
@@ -473,21 +174,13 @@ function _initFactoryPlatformInfo()
 function _initPatchedPlatformInfo()
 {
   #
-  # Change the target platform info (used by "patch" and "replace")
+  # Below you'll find the data used for the 'patch' command.
+  # Here you make the necessary changes for your setup. Without 
+  # changes to the uses data blob, nothing will/can be patched.
   #
+  # See also: https://pikeralpha.wordpress.com/2014/08/20/yosemite-dp6-with-hd4600/
 
   case "$id" in
-    0x0c060000) PATCHED_PLATFORM_INFO="0:
-                0000 060C 0003 0303 0000 0004 0000 0001
-                0000 F000 0000 0040 9914 0000 9914 0000
-                0000 0000 0000 0000 0000 1000 0200 0000
-                3000 0000 0105 1200 0400 0000 0400 0000
-                0204 1200 0008 0000 8200 0000 FF00 0100
-                0100 0000 4000 0000 0400 0000 0000 0700
-                0400 0000 0000 0000 0000 0000 0000 0000
-                0000 0000 0000 0000"
-                ;;
-
     #
     # OS X 10.10 Build 14A314h (Developer Preview 5)
     #
@@ -800,6 +493,347 @@ function _initPatchedPlatformInfo()
        exit 1
        ;;
   esac
+
+  _checkDataLength "$PATCHED_PLATFORM_INFO" PATCHED
+}
+
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _initFactoryPlatformInfo()
+{
+  #
+  # Do NOT change this data. This data is to undo patched data.
+  #
+  # Change the data starting with 0xNNNNNNNN) PATCHED_PLATFORM_INFO="0:
+  #
+  # 1.) Run the following command to extract data from the kext
+  #
+  #      ./AppleIntelFramebufferAzul.sh dump [TARGET_FILE]
+  #
+  # 2.) Paste the data into this script
+
+  case "$id" in
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x0c060000) FACTORY_PLATFORM_INFO="0:
+                0000 060c 0003 0303 0000 0004 0000 0001
+                0000 f000 0000 0040 9914 0000 9914 0000
+                0000 0000 0000 0000 0000 0800 0200 0000
+                3000 0000 0105 0900 0400 0000 0400 0000
+                0204 0900 0008 0000 8200 0000 ff00 0000
+                0100 0000 4000 0000 0400 0000 0000 0700
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 0000 0000 0000 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x0c160000) FACTORY_PLATFORM_INFO="0:
+                0000 160c 0003 0303 0000 0004 0000 0001
+                0000 f000 0000 0040 9914 0000 9914 0000
+                0000 0000 0000 0000 0000 0800 0200 0000
+                3000 0000 0105 0900 0400 0000 0400 0000
+                0204 0900 0008 0000 8200 0000 ff00 0000
+                0100 0000 4000 0000 0400 0000 0000 0700
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 0000 0000 0000 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x0c260000) FACTORY_PLATFORM_INFO="0:
+                0000 260c 0003 0303 0000 0004 0000 0001
+                0000 f000 0000 0040 9914 0000 9914 0000
+                0000 0000 0000 0000 0000 0800 0200 0000
+                3000 0000 0105 0900 0400 0000 0400 0000
+                0204 0900 0008 0000 8200 0000 ff00 0000
+                0100 0000 4000 0000 0400 0000 0000 0700
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 0000 0000 0000 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x04060000) FACTORY_PLATFORM_INFO="0:
+                0000 0604 0003 0303 0000 0004 0000 0001
+                0000 f000 0000 0040 9914 0000 9914 0000
+                0000 0000 0000 0000 0000 0800 0200 0000
+                3000 0000 0105 0900 0400 0000 0400 0000
+                0204 0900 0008 0000 8200 0000 ff00 0000
+                0100 0000 4000 0000 0400 0000 0000 0700
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 0000 0000 0000 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x04160000) FACTORY_PLATFORM_INFO="0:
+                0000 1604 0003 0303 0000 0004 0000 0001
+                0000 f000 0000 0040 9914 0000 9914 0000
+                0000 0000 0000 0000 0000 0800 0200 0000
+                3000 0000 0105 0900 0400 0000 0400 0000
+                0204 0900 0008 0000 8200 0000 ff00 0000
+                0100 0000 4000 0000 0400 0000 0000 0700
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 0000 0000 0000 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x04260000) FACTORY_PLATFORM_INFO="0:
+                0000 2604 0003 0303 0000 0004 0000 0001
+                0000 f000 0000 0040 9914 0000 9914 0000
+                0000 0000 0000 0000 0000 0800 0200 0000
+                3000 0000 0105 0900 0400 0000 0400 0000
+                0204 0900 0008 0000 8200 0000 ff00 0000
+                0100 0000 4000 0000 0400 0000 0000 0700
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 0000 0000 0000 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x0d260000) FACTORY_PLATFORM_INFO="0:
+                0000 260d 0003 0303 0000 0004 0000 0001
+                0000 f000 0000 0040 9914 0000 9914 0000
+                0000 0000 0000 0000 0000 0800 0200 0000
+                3000 0000 0105 0900 0400 0000 0400 0000
+                0204 0900 0008 0000 8200 0000 ff00 0000
+                0100 0000 4000 0000 0400 0000 0000 0700
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 0000 0000 0000 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x0a160000) FACTORY_PLATFORM_INFO="0:
+                0000 160a 0003 0303 0000 0004 0000 0001
+                0000 f000 0000 0040 d90a 0000 d90a 0000
+                0000 0000 0000 0000 0000 0800 0200 0000
+                3000 0000 0105 0900 0400 0000 0400 0000
+                0204 0900 0008 0000 8200 0000 ff00 0000
+                0100 0000 4000 0000 0400 0000 0000 0700
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 0000 0000 0000 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x0a260000) FACTORY_PLATFORM_INFO="0:
+                0000 260a 0003 0303 0000 0004 0000 0001
+                0000 f000 0000 0040 d90a 0000 d90a 0000
+                0000 0000 0000 0000 0000 0800 0200 0000
+                3000 0000 0105 0900 0400 0000 0400 0000
+                0204 0900 0008 0000 8200 0000 ff00 0000
+                0100 0000 4000 0000 0400 0000 0000 0700
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 0000 0000 0000 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x0a260005) FACTORY_PLATFORM_INFO="0:
+                0500 260a 0103 0303 0000 0002 0000 3001
+                0000 5000 0000 0060 d90a 0000 d90a 0000
+                0000 0000 0000 0000 0000 0800 0200 0000
+                3000 0000 0105 0900 0004 0000 8700 0000
+                0204 0900 0004 0000 8700 0000 ff00 0000
+                0100 0000 4000 0000 0f00 0000 0101 0000
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 0000 0000 0e00 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    # AppleIntelAzulController::GetGPUCapability(AGDCGPUCapability_t*)
+    #
+    0x0a260006) FACTORY_PLATFORM_INFO="0:
+                0600 260a 0103 0303 0000 0002 0000 3001
+                0000 6000 0000 0060 d90a 0000 d90a 0000
+                0000 0000 0000 0000 0000 0800 0200 0000
+                3000 0000 0105 0900 0004 0000 8700 0000
+                0204 0900 0004 0000 8700 0000 ff00 0000
+                0100 0000 4000 0000 0f00 0000 0101 0000
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 0000 0000 0e00 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    # Checked (3x) in: AppleIntelAzulController::InterruptHandler(OSObject*, IOInterruptEventSource*, int)
+    #
+    0x0a2e0008) FACTORY_PLATFORM_INFO="0:
+                0800 2e0a 0103 0303 0000 0004 0000 2002
+                0000 5001 0000 0060 6c05 0000 6c05 0000
+                0000 0000 0000 0000 0000 0800 0200 0000
+                3000 0000 0105 0900 0004 0000 0701 0000
+                0204 0a00 0004 0000 0701 0000 ff00 0000
+                0100 0000 4000 0000 1e00 0000 0505 0901
+                0000 0000 0000 0000 8076 0400 0000 0000
+                c07f 0400 0000 0000 3200 0000 0000 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x0a16000c) FACTORY_PLATFORM_INFO="0:
+                0c00 160a 0103 0303 0000 0004 0000 2002
+                0000 5001 0000 0060 6c05 0000 6c05 0000
+                0000 0000 0000 0000 0000 0800 0200 0000
+                3000 0000 0105 0900 0004 0000 0701 0000
+                0204 0a00 0004 0000 0701 0000 ff00 0000
+                0100 0000 4000 0000 1e00 0000 0505 0901
+                0000 0000 0000 0000 8076 0400 0000 0000
+                c07f 0400 0000 0000 3200 0000 0000 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x0d260007) FACTORY_PLATFORM_INFO="0:
+                0700 260d 0103 0403 0000 0004 0000 2002
+                0000 5001 0000 0060 a107 0000 a107 0000
+                0000 0000 0000 0000 0000 0800 0200 0000
+                3000 0000 0105 0b00 0004 0000 0701 0000
+                0204 0b00 0004 0000 0701 0000 0306 0300
+                0008 0000 0600 0000 1e03 0000 0505 0900
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 3200 0000 0e00 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x0d220003) FACTORY_PLATFORM_INFO="0:
+                0300 220d 0003 0303 0000 0002 0000 3001
+                0000 0000 0000 0060 9914 0000 9914 0000
+                0000 0000 0000 0000 0105 0900 0004 0000
+                8700 0000 0204 0a00 0004 0000 8700 0000
+                0306 0800 0004 0000 1100 0000 ff00 0000
+                0100 0000 4000 0000 0200 0000 0101 0000
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 0000 0000 0e00 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x0a2e000a) FACTORY_PLATFORM_INFO="0:
+                0a00 2e0a 0003 0303 0000 0002 0000 3001
+                0000 9000 0000 0060 9914 0000 9914 0000
+                0000 0000 0000 0000 0000 0800 0200 0000
+                1100 0000 0105 0900 0004 0000 8700 0000
+                0204 0a00 0004 0000 8700 0000 ff00 0000
+                0100 0000 4000 0000 d600 0000 0505 0000
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 0000 0000 0e00 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x0a26000a) FACTORY_PLATFORM_INFO="0:
+                0a00 260a 0003 0303 0000 0002 0000 3001
+                0000 9000 0000 0060 9914 0000 9914 0000
+                0000 0000 0000 0000 0000 0800 0200 0000
+                1100 0000 0105 0900 0004 0000 8700 0000
+                0204 0a00 0004 0000 8700 0000 ff00 0000
+                0100 0000 4000 0000 d600 0000 0505 0000
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 0000 0000 0e00 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x0a2e000d) FACTORY_PLATFORM_INFO="0:
+                0d00 2e0a 0003 0202 0000 0006 0000 2002
+                0000 2002 0000 0060 9914 0000 9914 0000
+                0000 0000 0000 0000 0105 0900 0004 0000
+                0701 0000 0204 0a00 0004 0000 0701 0000
+                ff00 0000 0100 0000 4000 0000 0000 0000
+                0000 0000 0000 0000 8e04 0000 0005 0500
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 0000 0000 0e00 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x0a26000d) FACTORY_PLATFORM_INFO="0:
+                0d00 260a 0003 0202 0000 0006 0000 2002
+                0000 2002 0000 0060 9914 0000 9914 0000
+                0000 0000 0000 0000 0105 0900 0004 0000
+                0701 0000 0204 0a00 0004 0000 0701 0000
+                ff00 0000 0100 0000 4000 0000 0000 0000
+                0000 0000 0000 0000 8e04 0000 0005 0500
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 0000 0000 0e00 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x04120004) FACTORY_PLATFORM_INFO="0:
+                0400 1204 0000 0000 0000 0002 0000 0000
+                0000 0000 0000 0010 0000 0000 0000 0000
+                0000 0000 0000 0000 ff00 0000 0100 0000
+                4000 0000 ff00 0000 0100 0000 4000 0000
+                ff00 0000 0100 0000 4000 0000 ff00 0000
+                0100 0000 4000 0000 0000 0000 0000 0000
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 0000 0000 0000 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x0412000b) FACTORY_PLATFORM_INFO="0:
+                0b00 1204 0000 0000 0000 0002 0000 0000
+                0000 0000 0000 0010 0000 0000 0000 0000
+                0000 0000 0000 0000 ff00 0000 0100 0000
+                4000 0000 ff00 0000 0100 0000 4000 0000
+                ff00 0000 0100 0000 4000 0000 ff00 0000
+                0100 0000 4000 0000 0000 0000 0000 0000
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 0000 0000 0000 0000"
+                ;;
+
+    #
+    # OS X 10.10 Build 14A314h (Developer Preview 5)
+    #
+    0x0d260009) FACTORY_PLATFORM_INFO="0:
+                0900 260d 0103 0101 0000 0004 0000 2002
+                0000 5001 0000 0060 a107 0000 a107 0000
+                0000 0000 0000 0000 0000 0800 0200 0000
+                3000 0000 ff00 0000 0100 0000 4000 0000
+                ff00 0000 0100 0000 4000 0000 ff00 0000
+                0100 0000 4000 0000 1e00 0000 0505 0900
+                0400 0000 0000 0000 0000 0000 0000 0000
+                0000 0000 0000 0000 3200 0000 0e00 0000"
+                ;;
+
+    *) _PRINT_ERROR "Unknown ID given or factory data missing!\n"
+       exit 1
+       ;;
+  esac
+
+  _checkDataLength "$FACTORY_PLATFORM_INFO" FACTORY
 }
 
 
@@ -1158,7 +1192,7 @@ function _getOffset()
 
   if [ "$platformIDString" == "${data[1]} ${data[2]}" ];
     then
-      echo "\nAAPL,ig-platform-id: $id located @ $fileOffset"
+      echo "AAPL,ig-platform-id: $id located @ $fileOffset"
       #
       # Done.
       #
@@ -1195,17 +1229,54 @@ function _fileExists()
   fi
 }
 
-
 #
 #--------------------------------------------------------------------------------
 #
 
-function _askToReboot()
+function _checkFilename()
 {
+  if [[ $(_fileExists "$1") -eq 1 ]];
+    then
+      TARGET_FILE="$1"
+    else
+      _PRINT_ERROR "File not found error. Check path/filename!\n"
+      exit -1
+  fi
+}
+
+
+#
+#--------------------------------------------------------------------------------
+#
+function _patchFile()
+{
+  if [[ "$1" == "patch" ]];
+    then
+      #
+      # Check factory/patched data. Must be different or we can't do anything.
+      #
+      if [[ $FACTORY_PLATFORM_INFO == $PATCHED_PLATFORM_INFO ]];
+        then
+          _PRINT_ERROR "Nothing to patch - factory/patched data is the same!\n\n"
+          printf "Open AppleIntelFramebufferAzul.sh with nano (example) and\n"
+          printf "change the data labeled $id) ${STYLE_BOLD}PATCHED${STYLE_RESET}_PLATFORM_INFO=\"0:\n\n"
+          printf "Do NOT patch the data labeled $id) ${STYLE_BOLD}FACTORY${STYLE_RESET}_PLATFORM_INFO=\"0:\n"
+          printf "because the factory data is used to RESTORE data (read: undo patch)!\n"
+          printf "Exiting ...\n"
+          exit -1
+        else
+          echo "---------------------------------------------------------"
+          echo $PATCHED_PLATFORM_INFO | xxd -c $gDataBytes -r | dd of="$TARGET_FILE" bs=1 seek=${fileOffset} conv=notrunc
+      fi
+    else
+      echo "---------------------------------------------------------"
+      echo $FACTORY_PLATFORM_INFO | xxd -c $gDataBytes -r | dd of="$TARGET_FILE" bs=1 seek=${fileOffset} conv=notrunc
+  fi
+
   read -p "Do you want to reboot now? (y/n) " rebootChoice
   case "$rebootChoice" in
-    y|Y ) reboot now
-          ;;
+    y|Y) reboot now
+         ;;
   esac
 }
 
@@ -1219,10 +1290,41 @@ function _main()
   clear
   printf "\nAIFBAzul.sh v$gScriptVersion Copyright (c) 2012-$(date "+%Y") by Pike R. Alpha\n"
   echo  "---------------------------------------------------------"
-  echo  "Reading file: $TARGET_FILE"
 
-  if [[ -f "$TARGET_FILE" ]];
+  if [[ $(_fileExists "$TARGET_FILE") -eq 1 ]];
     then
+      #
+      # Check script name add change target filename.
+      #
+      if [[ "$0" =~ "AppleIntelFramebufferCapri.sh" ]];
+        then
+          TARGET_FILE=$(echo "$TARGET_FILE" | sed -e 's/Azul/Capri/g')
+      fi
+      #
+      # Check filename (adds backward compatibility).
+      #
+      if [[ "$TARGET_FILE" =~ "AppleIntelFramebufferCapri" ]];
+        then
+          let gDataBytes=($gBytesPerRow*125)/10
+        else
+          #
+          # Check OS version and re-initialise gRowsInTable.
+          #
+          case "$(echo $gProductVersion | sed -e 's/^10\.//' -e 's/\.[0-9]*//')" in
+            7|8 ) # Lion and Mountain Lion
+                  let gRowsInTable=7
+                  ;;
+            9|10) # Mavericks and Yosemite
+                  let gRowsInTable=8
+                  ;;
+          esac
+          #
+          # Override the default number of bytes (at top of script).
+          #
+          let gDataBytes=($gBytesPerRow*$gRowsInTable)
+      fi
+
+      echo "Reading file: $TARGET_FILE"
       #
       # Are we asked to dump the factory data?
       #
@@ -1245,47 +1347,21 @@ function _main()
       _initFactoryPlatformInfo
       _initPatchedPlatformInfo
       _getOffset
-
-      if [[ $action == "show" ]];
-        then
-          echo "---------------------------------------------------------"
-          xxd -s +$fileOffset -l 128 -c 16 "$TARGET_FILE"
-          echo ""
-      fi
-
-      if [[ $action == "patch" || $action == "replace" ]];
-        then
-          echo "---------------------------------------------------------"
-          #
-          # Check factory/patched data (must be different, or we won't restore anything)
-          #
-          if [[ $FACTORY_PLATFORM_INFO == $PATCHED_PLATFORM_INFO ]];
-            then
-              echo "\nWarning: Nothing to patch - factory/patched data is the same!\n"
-            else
-              echo $PATCHED_PLATFORM_INFO | xxd -c 128 -r | dd of="$TARGET_FILE" bs=1 seek=${fileOffset} conv=notrunc
-              _askToReboot
-          fi
-      fi
-
-      if [[ $action == "restore" || $action == "undo" ]];
-        then
-          echo "---------------------------------------------------------"
-          #
-          # Check factory/patched data (must be different, or we won't restore anything)
-          #
-          # TODO: We should check the binary against the factory data!
-          #
-          if [[ $FACTORY_PLATFORM_INFO == $PATCHED_PLATFORM_INFO ]];
-            then
-              echo "\nWarning: Nothing to patch - factory/patched data is the same!\n"
-            else
-              echo $FACTORY_PLATFORM_INFO | xxd -c 128 -r | dd of="$TARGET_FILE" bs=1 seek=${fileOffset} conv=notrunc
-              _askToReboot
-          fi
-      fi
+      #
+      # Figure out the 'action' to perform.
+      #
+      case "$action" in
+        patch|replace) _patchFile "patch"
+                       ;;
+        restore|undo ) _patchFile "restore"
+                       ;;
+        show|*       ) echo "---------------------------------------------------------"
+                       xxd -s +$fileOffset -l $gDataBytes -c 16 "$TARGET_FILE"
+                       echo ""
+                       ;;
+      esac
     else
-      echo "\nError: File not found (check path in script)!\n"
+      _PRINT_ERROR "File not found error. Check path/filename in this script!\n"
   fi
 }
 
@@ -1304,23 +1380,18 @@ if [ $gNumberOfArguments -eq 0 ];
 
     if [ "$id" == "dump" ];
       then
-        action=$(_toLowerCase $1)
+        action=$id
 
         if [ $gNumberOfArguments -eq 2 ];
           then
-            if [[ $(_fileExists "$2") -eq 1 ]];
-              then
-                TARGET_FILE="$2"
-            fi
+            _checkFilename "$2"
         fi
       else
         action=$(_toLowerCase $2)
 
         if [ $gNumberOfArguments -eq 3 ];
           then
-            if [[ -f "$3" ]]; then
-              TARGET_FILE="$3"
-            fi
+            _checkFilename "$3"
         fi
     fi
 
