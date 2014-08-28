@@ -4,7 +4,7 @@
 # This script is a stripped/rewrite of AppleIntelSNBGraphicsFB.sh 
 #
 # Version 0.9 - Copyright (c) 2012 by † RevoGirl
-# Version 2.0 - Copyright (c) 2013 by Pike R. Alpha <PikeRAlpha@yahoo.com>
+# Version 2.1 - Copyright (c) 2013 by Pike R. Alpha <PikeRAlpha@yahoo.com>
 #
 #
 # Updates:
@@ -14,28 +14,30 @@
 #			- v1.3	support for optional filename added (Pike, October 2013)
 #			- v1.4	asks to reboot (Pike, June 2014)
 #			- v1.5	table data dumper added (Pike, August 2014)
-#			-		table data replaced with that of Yosemite DP5.
+#			-       table data replaced with that of Yosemite DP5.
 #			- v1.6	adjustable framebuffer size (Pike, August 2014)
-#			-		askToReboot() was lost/added again.
-#			-		dump now reads the correct [optional] file argument.
+#			-       askToReboot() was lost/added again.
+#			-       dump now reads the correct [optional] file argument.
 #			- v1.7	read LC_SYMTAB to get offset to _gPlatformInformationList i.e.
-#			-		dump now works <em>with</em> and <em>without</em> nm.
-#			-		typo fixed, layout changes (whitespace) and other improvements.
+#			-       dump now works <em>with</em> and <em>without</em> nm.
+#			-       typo fixed, layout changes (whitespace) and other improvements.
 #			- v1.8	fixed a small error (0x0x instead of 0x) in _dumpConnectorData (Pike, August 2014)
 #			- v1.9	'show' argument is now optional (Pike, August 2014)
-#			-		code moved to a new function called _patchFile
-#			-		done some cleanups and a few cosmetic only changes.
-#			-		note added about where/what to do when the data is unchanged.
-#			-		function _checkDataLength added.
-#			-		moved PATCHED_PLATFORM_INFO to above FACTORY_PLATFORM_INFO (easier to make changes).
-#			-		renaming script to AppleIntelFramebufferCapri.sh adds capri support.
+#			-       code moved to a new function called _patchFile
+#			-       done some cleanups and a few cosmetic only changes.
+#			-       note added about where/what to do when the data is unchanged.
+#			-       function _checkDataLength added.
+#			-       moved PATCHED_PLATFORM_INFO to above FACTORY_PLATFORM_INFO (easier to make changes).
+#			-       renaming script to AppleIntelFramebufferCapri.sh adds capri support.
 #			- v2.0	show no longer calls _checkDataLength (Pike, August 2014)
-#			-		using an unsupported platformID now shows a list with supported platformIDs.
+#			-       using an unsupported platformID now shows a list with supported platformIDs.
 #			-       this list also shows additional info, like: "Ivy Bridge/Haswell (Mobile) GT[1/2/3]"
 #			-       don't show 'AppleIntelFramebufferAzul.sh' for 'AppleIntelFramebufferCapri.sh'
+#			- v2.1	whitespace changes (Pike, August 2014)
+#			-       forgotten device-id (0x0a2e) added.
 #
 
-gScriptVersion=2.0
+gScriptVersion=2.1
 
 #
 # Used to print the name of the running script
@@ -1155,21 +1157,37 @@ function _printInfo()
   local deviceID=$(echo $1 | tr '[:lower:]' '[:upper:]')
 
   case "0x$deviceID" in
+    #
+    # Ivy Bridge hardware support.
+    #
     0x0162) text="Ivy Bridge GT2" ;;
     0x0166) text="Ivy Bridge Mobile GT2" ;;
+    #
+    # Haswell hardware support.
+    #
     0x0402) text="Haswell GT1" ;;
     0x0412) text="Haswell GT2" ;;
     0x0422) text="Haswell GT3" ;;
     0x0406) text="Haswell Mobile GT1" ;;
     0x0416) text="Haswell Mobile GT2" ;;
     0x0426) text="Haswell Mobile GT3" ;;
+    #
+    # Software Development Vehicle devices.
+    #
     0x0C06) text="Haswell SDV Mobile GT1" ;;
     0x0C16) text="Haswell SDV Mobile GT2" ;;
     0x0C26) text="Haswell SDV Mobile GT3" ;;
+    #
+    # CRW.
+    #
     0x0D22) text="Haswell CRW GT3" ;;
     0x0D26) text="Haswell CRW Mobile GT3" ;;
+    #
+    # Ultra Low TDP/Ultra Low eXtreme TDP.
+    #
     0x0A16) text="Haswell ULT Mobile GT2" ;;
     0x0A26) text="Haswell ULT Mobile GT3" ;;
+    0x0A2E) text="Haswell ULT E GT3" ;;
   esac
 
   if [[ $text ]];
