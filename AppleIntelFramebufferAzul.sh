@@ -4,7 +4,7 @@
 # This script is a stripped/rewrite of AppleIntelSNBGraphicsFB.sh 
 #
 # Version 0.9 - Copyright (c) 2012 by † RevoGirl
-# Version 1.9 - Copyright (c) 2013 by Pike R. Alpha <PikeRAlpha@yahoo.com>
+# Version 2.0 - Copyright (c) 2013 by Pike R. Alpha <PikeRAlpha@yahoo.com>
 #
 #
 # Updates:
@@ -29,9 +29,19 @@
 #			-		function _checkDataLength added.
 #			-		moved PATCHED_PLATFORM_INFO to above FACTORY_PLATFORM_INFO (easier to make changes).
 #			-		renaming script to AppleIntelFramebufferCapri.sh adds capri support.
+#			- v2.0	show no longer calls _checkDataLength (Pike, August 2014)
+#			-		using an unsupported platformID now shows a list with supported platformIDs.
+#			-       this list also shows additional info, like: "Ivy Bridge/Haswell (Mobile) GT[1/2/3]"
+#			-       don't show 'AppleIntelFramebufferAzul.sh' for 'AppleIntelFramebufferCapri.sh'
 #
 
-gScriptVersion=1.9
+gScriptVersion=2.0
+
+#
+# Used to print the name of the running script
+#
+
+gScriptName=$(echo $0 | sed -e 's/^\.\///')
 
 #
 # Setting the debug mode (default off).
@@ -71,6 +81,11 @@ gProductVersion="$(sw_vers -productVersion)"
 # Giving $# a name.
 #
 gNumberOfArguments=$#
+
+#
+#
+#
+gPlatformIDs=""
 
 #
 # Change this to whatever full patch you want to use.
@@ -161,8 +176,34 @@ function _checkDataLength()
   if [[ ${#data} -ne $gDataBytes*2+2 ]];
     then
       _PRINT_ERROR "$id) $2_PLATFORM_INFO=\"0:... must be ${gDataBytes} bytes!\n" ${#data}
+      printf      "       You may need to run: ./$gScriptName dump\n"
+      printf      "       to extract the data from the binary!\n"
       printf      "       Tip: Do not add comments to the data sections!\n\n"
       exit -1
+  fi
+}
+
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _showDelayedDots()
+{
+  local let index=0
+
+  while [[ $index -lt 3 ]]
+  do
+    let index++
+    sleep 0.150
+    printf "."
+  done
+
+  sleep 0.200
+
+  if [ $# ];
+    then
+      printf $1
   fi
 }
 
@@ -1108,6 +1149,100 @@ function _dumpConnectorData()
 #--------------------------------------------------------------------------------
 #
 
+function _printInfo()
+{
+  local text=""
+  local deviceID=$(echo $1 | tr '[:lower:]' '[:upper:]')
+
+  case "0x$deviceID" in
+    0x0162) text="Ivy Bridge GT2" ;;
+    0x0166) text="Ivy Bridge Mobile GT2" ;;
+    0x0402) text="Haswell GT1" ;;
+    0x0412) text="Haswell GT2" ;;
+    0x0422) text="Haswell GT3" ;;
+    0x0406) text="Haswell Mobile GT1" ;;
+    0x0416) text="Haswell Mobile GT2" ;;
+    0x0426) text="Haswell Mobile GT3" ;;
+    0x0C06) text="Haswell SDV Mobile GT1" ;;
+    0x0C16) text="Haswell SDV Mobile GT2" ;;
+    0x0C26) text="Haswell SDV Mobile GT3" ;;
+    0x0D22) text="Haswell CRW GT3" ;;
+    0x0D26) text="Haswell CRW Mobile GT3" ;;
+    0x0A16) text="Haswell ULT Mobile GT2" ;;
+    0x0A26) text="Haswell ULT Mobile GT3" ;;
+  esac
+
+  if [[ $text ]];
+    then
+      printf "$text"
+  fi
+}
+
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _showPlatformIDs()
+{
+  #
+  # Is this a recursive call?
+  #
+  if [[ $# -eq 0 ]];
+    then
+      _getConnectorTableData 1
+    else
+      clear
+  fi
+
+  let index=0
+  #
+  # Split data.
+  #
+  local data=($gPlatformIDs)
+
+  printf "The supported platformIDs are:\n------------------------------\n\n"
+
+  for platformID in ${data[@]}
+  do
+    let index++
+    printf "[%2d] : ${platformID} - $(_printInfo ${platformID:2:4})\n" $index
+  done
+
+  echo ''
+
+  read -p "Please choose a target platformID (0/1-${index}) ? " selection
+
+  if [[ $selection -eq 0 ]];
+    then
+      printf "Aborting "
+      _showDelayedDots "\n\n"
+      exit -0
+    else
+      if [[ $selection -gt 0 && $selection -le $index ]];
+        then
+          id="${data[$selection-1]}"
+          echo ''
+          _getOffset
+        else
+          echo ''
+          _PRINT_ERROR "Invalid selection!\nRetrying "
+          _showDelayedDots
+          #
+          # Argument '1' signals a recursive call.
+          #
+          _showPlatformIDs 1
+      fi
+  fi
+}
+
+
+#
+#--------------------------------------------------------------------------------
+#
+# Note: Called with one argument ("1") to skip output.
+#
+
 function _getConnectorTableData()
 {
   _getConnectorTableOffset
@@ -1126,7 +1261,17 @@ function _getConnectorTableData()
 
       if [ "$platformID" != "0xffffffff" ];
         then
-          _dumpConnectorData $platformID $connectorTableData
+          #
+          # Collect platformIDs
+          #
+          gPlatformIDs+="$platformID "
+          #
+          # Check number of arguments (zero means print data).
+          #
+          if [[ $# -eq 0 ]];
+             then
+               _dumpConnectorData $platformID $connectorTableData
+          fi
 
           let index+=$gDataBytes
         else
@@ -1198,8 +1343,11 @@ function _getOffset()
       #
       return;
     else
-      _PRINT_ERROR "AAPL,ig-platform-id: $id NOT found! Aborting ...\n\n"
-      exit 1
+      _PRINT_ERROR "AAPL,ig-platform-id: $id NOT found!\n\n"
+      #
+      # Show list with platform IDs.
+      #
+      _showPlatformIDs
   fi
 }
 
@@ -1258,7 +1406,7 @@ function _patchFile()
       if [[ $FACTORY_PLATFORM_INFO == $PATCHED_PLATFORM_INFO ]];
         then
           _PRINT_ERROR "Nothing to patch - factory/patched data is the same!\n\n"
-          printf "Open AppleIntelFramebufferAzul.sh with nano (example) and\n"
+          printf "Open $gScriptName with nano (example) and\n"
           printf "change the data labeled $id) ${STYLE_BOLD}PATCHED${STYLE_RESET}_PLATFORM_INFO=\"0:\n\n"
           printf "Do NOT patch the data labeled $id) ${STYLE_BOLD}FACTORY${STYLE_RESET}_PLATFORM_INFO=\"0:\n"
           printf "because the factory data is used to RESTORE data (read: undo patch)!\n"
@@ -1288,15 +1436,15 @@ function _patchFile()
 function _main()
 {
   clear
-  printf "\nAIFBAzul.sh v$gScriptVersion Copyright (c) 2012-$(date "+%Y") by Pike R. Alpha\n"
-  echo  "---------------------------------------------------------"
+  printf "\n$gScriptName v$gScriptVersion Copyright (c) 2012-$(date "+%Y") by Pike R. Alpha\n"
+  echo  "--------------------------------------------------------------------------"
 
   if [[ $(_fileExists "$TARGET_FILE") -eq 1 ]];
     then
       #
       # Check script name add change target filename.
       #
-      if [[ "$0" =~ "AppleIntelFramebufferCapri.sh" ]];
+      if [[ "$gScriptName" =~ "AppleIntelFramebufferCapri.sh" ]];
         then
           TARGET_FILE=$(echo "$TARGET_FILE" | sed -e 's/Azul/Capri/g')
       fi
@@ -1324,7 +1472,7 @@ function _main()
           let gDataBytes=($gBytesPerRow*$gRowsInTable)
       fi
 
-      echo "Reading file: $TARGET_FILE"
+      echo "Reading file: $TARGET_FILE\n"
       #
       # Are we asked to dump the factory data?
       #
@@ -1344,16 +1492,16 @@ function _main()
           return
       fi
 
-      _initFactoryPlatformInfo
-      _initPatchedPlatformInfo
       _getOffset
       #
       # Figure out the 'action' to perform.
       #
       case "$action" in
-        patch|replace) _patchFile "patch"
+        patch|replace) _initPatchedPlatformInfo
+                       _patchFile "patch"
                        ;;
-        restore|undo ) _patchFile "restore"
+        restore|undo ) _initFactoryPlatformInfo
+                       _patchFile "restore"
                        ;;
         show|*       ) echo "---------------------------------------------------------"
                        xxd -s +$fileOffset -l $gDataBytes -c 16 "$TARGET_FILE"
