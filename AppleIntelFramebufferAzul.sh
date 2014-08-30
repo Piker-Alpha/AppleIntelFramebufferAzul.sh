@@ -4,7 +4,7 @@
 # This script is a stripped/rewrite of AppleIntelSNBGraphicsFB.sh 
 #
 # Version 0.9 - Copyright (c) 2012 by † RevoGirl
-# Version 2.1 - Copyright (c) 2013 by Pike R. Alpha <PikeRAlpha@yahoo.com>
+# Version 2.5 - Copyright (c) 2013 by Pike R. Alpha <PikeRAlpha@yahoo.com>
 #
 #
 # Updates:
@@ -35,9 +35,19 @@
 #			-       don't show 'AppleIntelFramebufferAzul.sh' for 'AppleIntelFramebufferCapri.sh'
 #			- v2.1	whitespace changes (Pike, August 2014)
 #			-       forgotten device-id (0x0a2e) added.
+#			- v2.2  fixed _getOffset for Capri (Pike, August 2014)
+#			-       reset gPlatformIDs in function _showPlatformIDs to prevent duplicated entries.
+#			- v2.3  read property AAPL,ig-platform-id from ioreg and use it as default target.
+#			-       helper functions _hexToMegaByte, _hexToPortName and _hexToPortNumber added.
+#			- v2.4  function _showColorizedData added.
+#           -       changed _hexToMegaByte a little.
+#           -       LVDS added to _hexToPortName.
+#			- v2.5  _showColorizedData now also support Capri.
+#			-       cleanups and comments added.
+#			-       function _printInfo added.
 #
 
-gScriptVersion=2.1
+gScriptVersion=2.5
 
 #
 # Used to print the name of the running script
@@ -85,9 +95,14 @@ gProductVersion="$(sw_vers -productVersion)"
 gNumberOfArguments=$#
 
 #
-#
+# Supported platformIDs found by _getConnectorTableData.
 #
 gPlatformIDs=""
+
+#
+# Default platformID (initialized by _readPlatformAAPL).
+#
+let gCurrentPlatformID=0
 
 #
 # Change this to whatever full patch you want to use.
@@ -97,7 +112,7 @@ gPlatformIDs=""
 TARGET_FILE="/System/Library/Extensions/AppleIntelFramebufferAzul.kext/Contents/MacOS/AppleIntelFramebufferAzul"
 
 #
-# Change this to 0 if you don't want additional styling (bold/underlined).
+# Change this to 0 if you don't want additional styling (bold/underlined/colors).
 #
 let gExtraStyling=1
 
@@ -1241,6 +1256,10 @@ function _showPlatformIDs()
         then
           id="${data[$selection-1]}"
           echo ''
+          #
+          # Reset variable to prevent duplicated entries.
+          #
+          gPlatformIDs=""
           _getOffset
         else
           echo ''
@@ -1353,9 +1372,11 @@ function _getOffset()
   data=($matchingData);
   let fileOffset="0x${data[0]}"
 
-  if [ "$platformIDString" == "${data[1]} ${data[2]}" ];
+  if [[ "$platformIDString" == "${data[1]} ${data[2]}" || "$platformIDString" == "${data[5]} ${data[6]}" ]];
     then
-      echo "AAPL,ig-platform-id: $id located @ $fileOffset"
+      printf "AAPL,ig-platform-id: $id ("
+      printf "$(_printInfo ${id:2:4})"
+      printf ") found @ 0x%x/$fileOffset\n" $fileOffset
       #
       # Done.
       #
@@ -1451,6 +1472,242 @@ function _patchFile()
 #--------------------------------------------------------------------------------
 #
 
+function _showPlainTextData()
+{
+  xxd -s +$fileOffset -l $gDataBytes -c 16 "$TARGET_FILE"
+}
+
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _hexToMegaByte()
+{
+  local value=$(_reverseBytes $1)
+
+  if [[ $value -ge 1024 ]];
+    then
+      if [[ $value -ge 1048576 ]];
+        then
+#         let value=($value/1024/1024)
+          let value="value >>= 20"
+        else
+#         let value=($value/1024)
+          let "value >>= 10"
+      fi
+    else
+      let value=0
+  fi
+
+  echo $value
+}
+
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _hexToPortNumber()
+{
+  local  portNumber=${1:0:4}
+  #
+  # Check for unused port.
+  #
+  if [[ $portNumber -ne $2 ]];
+    then
+      #
+      # Is this AppleIntelFramebufferAzul?
+      #
+      if [[ $2 -eq 255 ]];
+        then
+          if [[ $portNumber -eq 0 ]];
+            then
+              let portNumber=0
+            else
+              let portNumber+=4
+          fi
+        else
+          #
+          # No. AppleIntelFramebufferCapri
+          #
+          if [[ $portNumber -eq 1 ]];
+            then
+              let portNumber=0
+            else
+              let portNumber+=3
+          fi
+      fi
+
+      echo "$portNumber"
+    else
+      let portNumber=$2
+      echo "$portNumber unused"
+  fi
+}
+
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _hexToPortName()
+{
+  local text=''
+
+  case "$1" in
+    0x01000000) text='VGA' ;;
+    0x02000000) text='LVDS' ;;
+    0x04000000) text='eDP' ;;
+    0x00020000) text='DVI' ;;
+    0x00040000) text='DisplayPort' ;;
+    0x00080000) text='HDMI' ;;
+    *         ) text='Unknown' ;;
+  esac
+
+  echo "\e[31m$text\e[0m"
+}
+
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _showColorizedData()
+{
+  local data=($(xxd -s +$fileOffset -l $gDataBytes -c 16 "$TARGET_FILE" | sed -e 's/\. \.//g'))
+
+  printf "${data[0]} \e[1m${data[1]} ${data[2]}\e[0m ${data[3]} "
+  printf "${data[4]} \e[1;31m${data[5]} ${data[6]}\e[0m \e[1;34m${data[7]} ${data[8]}\e[0m ("
+
+  local stolenMemory=$(_hexToMegaByte "${data[5]}${data[6]}")
+  local framebufferMemory=$(_hexToMegaByte "${data[7]}${data[8]}")
+
+  printf "\e[1;31m%d MB\e[0m BIOS-allocated memory, \e[1;34m%d MB\e[0m framebuffer)\n" $stolenMemory $framebufferMemory
+
+  #
+  # Is this AppleIntelFramebuffeAzul?
+  #
+  if [[ "$TARGET_FILE" =~ "AppleIntelFramebufferAzul" ]];
+    then
+      printf "${data[10]} \e[32m${data[11]} ${data[12]}\e[0m \e[1;35m${data[13]} ${data[14]}\e[0m "
+      printf "\e[36m${data[15]} ${data[16]}\e[0m \e[0;35m${data[17]} ${data[18]}\e[0m ("
+
+      local cursorBytes=$(_hexToMegaByte "${data[11]}${data[12]}")
+      local vram=$(_hexToMegaByte "${data[13]}${data[14]}")
+      local backlightFrequency=$(_reverseBytes "${data[15]}${data[16]}")
+      local backlightMax=$(_reverseBytes "${data[17]}${data[18]}")
+
+      printf "\e[32m%s MB\e[0m cursor bytes, \e[1;35m%d MB\e[0m VRAM, backlight frequency " $cursorBytes $vram
+      printf "\e[36m%d Hz\e[0m, \e[0;35m%d\e[0m Max backlight)\n"  $backlightFrequency $backlightMax
+      printf "${data[20]} ${data[21]} ${data[22]} ${data[23]} ${data[24]} "
+      printf "\e[1;34m${data[25]:0:2}\e[0m${data[25]:2:2} ${data[26]} \e[31m${data[27]} ${data[28]}\e[0m ("
+
+      local portNumber=$(_hexToPortNumber "0x${data[25]}" 0xff)
+      local portName=$(_hexToPortName "0x${data[27]}${data[28]}")
+
+      printf "port \e[1;34m$portNumber\e[0m, $portName connector)\n"
+      printf "${data[30]} ${data[31]} ${data[32]} \e[1;34m${data[33]:0:2}\e[0m"
+      printf "${data[33]:2:2} ${data[34]}\e[31m ${data[35]} ${data[36]}\e[0m ${data[37]} ${data[38]} ("
+
+      local portNumber=$(_hexToPortNumber "0x${data[33]}" 0xff)
+      local portName=$(_hexToPortName "0x${data[35]}${data[36]}")
+
+      printf "port \e[1;34m$portNumber\e[0m, $portName connector)\n"
+      printf "${data[40]} \e[1;34m${data[41]:0:2}\e[0m${data[41]:2:2} ${data[42]} "
+      printf "\e[31m${data[43]} ${data[44]}\e[0m ${data[45]} ${data[46]} "
+      printf "\e[1;34m${data[47]:0:2}\e[0m${data[47]:2:2} ${data[48]} ("
+
+      local portNumber=$(_hexToPortNumber "0x${data[41]}" 0xff)
+      local portNumber2=$(_hexToPortNumber "0x${data[47]}" 0xff)
+      local portName=$(_hexToPortName "0x${data[43]}${data[44]}")
+
+      printf "port \e[1;34m$portNumber\e[0m, $portName connector / port \e[1;34m$portNumber2\e[0m)\n"
+      printf "${data[50]} \e[31m${data[51]} ${data[52]}\e[0m ${data[53]} ${data[54]} "
+      printf "\e[4;33m${data[55]} ${data[56]}\e[0m ${data[57]} ${data[58]} ("
+
+      local portName=$(_hexToPortName "0x${data[51]}${data[52]}")
+
+      printf "$portName connector)\n"
+      printf "${data[60]} ${data[61]} ${data[62]} ${data[63]} ${data[64]} ${data[65]} ${data[66]} ${data[67]} ${data[68]}\n\n"
+    else
+      #
+      # No. AppleIntelFramebuffeCapri
+      #
+      printf "${data[10]} \e[1;35m${data[11]} ${data[12]}\e[0m \e[1;36m${data[13]} ${data[14]}\e[0m "
+      printf "\e[35m${data[15]} ${data[16]}\e[0m ${data[17]} ${data[18]} ("
+
+      local vram=$(_hexToMegaByte "${data[11]}${data[12]}")
+      local backlightFrequency=$(_reverseBytes "${data[13]}${data[14]}")
+      local backlightMax=$(_reverseBytes "${data[15]}${data[16]}")
+
+      printf "\e[1;35m%d MB\e[0m VRAM, \e[1;36m%d Hz\e[0m backlight frequency, \e[0;35m%d\e[0m Max backlight)\n" $vram $backlightFrequency $backlightMax
+      printf "${data[20]} ${data[21]} ${data[22]} ${data[23]} ${data[24]} ${data[25]} ${data[26]} ${data[27]} ${data[28]}\n"
+      printf "${data[30]} \e[1;34m${data[31]:0:2}\e[0m${data[31]:2:2} ${data[32]} \e[31m${data[33]} "
+      printf "${data[34]}\e[0m ${data[35]} ${data[36]} \e[1;34m${data[37]:0:2}\e[0m${data[37]:2:2} ${data[38]} ("
+
+      local portNumber=$(_hexToPortNumber "0x${data[31]}" 0)
+      local portName=$(_hexToPortName "0x${data[33]}${data[34]}")
+      local portNumber2=$(_hexToPortNumber "0x${data[37]}" 0)
+
+      printf "port \e[1;34m$portNumber\e[0m, $portName connector / port \e[1;34m$portNumber2\e[0m, ...)\n"
+      printf "${data[40]} \e[31m${data[41]} ${data[42]}\e[0m ${data[43]} ${data[44]} "
+      printf "\e[1;34m${data[45]:0:2}\e[0m${data[45]:2:2} ${data[46]} \e[31m${data[47]} ${data[48]}\e[0m ("
+
+      local portName=$(_hexToPortName "0x${data[41]}${data[42]}")
+      local portNumber=$(_hexToPortNumber "0x${data[45]}" 0)
+      local portName2=$(_hexToPortName "0x${data[47]}${data[48]}")
+
+      printf "\e[31m$portName\e[0m connector / port \e[1;34m$portNumber\e[0m, \e[31m$portName2\e[0m connector)\n"
+      printf "${data[50]} ${data[51]} ${data[52]} \e[1;34m${data[53]:0:2}\e[0m${data[53]:2:2} ${data[54]} "
+      printf "\e[31m${data[55]} ${data[56]}\e[0m ${data[57]} ${data[58]} ("
+
+      local portNumber=$(_hexToPortNumber "0x${data[53]}" 0)
+      local portName=$(_hexToPortName "0x${data[55]}${data[56]}")
+
+      printf "port \e[1;34m$portNumber\e[0m, \e[31m$portName\e[0m connector)\n"
+      printf "${data[60]} ${data[61]} ${data[62]} ${data[63]} ${data[64]} ${data[65]} ${data[66]} ${data[67]} ${data[68]}\n"
+      printf "${data[70]} ${data[71]} ${data[72]} ${data[73]} ${data[74]} ${data[75]} ${data[76]} ${data[77]} ${data[78]}\n"
+      printf "${data[80]} ${data[81]} ${data[82]} ${data[83]} ${data[84]} ${data[85]} ${data[86]} ${data[87]} ${data[88]}\n"
+
+      printf "${data[90]} ${data[91]} ${data[92]} ${data[93]} ${data[94]} ${data[95]} ${data[96]} ${data[97]} ${data[98]}\n"
+      printf "${data[100]} ${data[101]} ${data[102]} ${data[103]} ${data[104]} ${data[105]} ${data[106]} ${data[107]} ${data[108]}\n"
+      printf "${data[110]} ${data[111]} ${data[112]} ${data[113]} ${data[114]} ${data[115]} ${data[116]} ${data[117]} ${data[118]}\n"
+      printf "${data[120]} ${data[121]} ${data[122]} ${data[123]} ${data[124]}\n\n"
+  fi
+}
+
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _readPlatformID()
+{
+  #
+  # Check script name to select target property.
+  #
+  if [[ "$gScriptName" =~ "SNB" ]];
+    then
+      local targetProperty="AAPL,snb-platform-id"
+    else
+      local targetProperty="AAPL,ig-platform-id"
+  fi
+
+  _DEBUG_PRINT $targetProperty
+
+  local result=$(/usr/sbin/ioreg -p IODeviceTree -c IOPCIDevice -k $targetProperty | grep $targetProperty | awk '{print $5}' | sed -e 's/[<>]//g')
+
+  if [[ $result ]];
+    then
+      gCurrentPlatformID=$(_reverseBytes $result)
+  fi
+}
+
+#
+#--------------------------------------------------------------------------------
+#
+
 function _main()
 {
   clear
@@ -1521,9 +1778,14 @@ function _main()
         restore|undo ) _initFactoryPlatformInfo
                        _patchFile "restore"
                        ;;
-        show|*       ) echo "---------------------------------------------------------"
-                       xxd -s +$fileOffset -l $gDataBytes -c 16 "$TARGET_FILE"
-                       echo ""
+        show|*       ) echo "--------------------------------------------------------------------------\n"
+
+                       if [[ $gExtraStyling -eq 1 ]];
+                         then
+                           _showColorizedData
+                         else
+                           _showPlainTextData
+                       fi
                        ;;
       esac
     else
@@ -1539,8 +1801,17 @@ function _main()
 #
 if [ $gNumberOfArguments -eq 0 ];
   then
-    echo "Usage: sudo $0 AAPL,ig-platform-id [dump|show|patch|replace|undo|restore] [TARGET_FILE]"
-    exit 1
+    _readPlatformID
+
+    if [[ $gCurrentPlatformID -eq 0 ]];
+      then
+        echo "Usage: sudo $0 AAPL,ig-platform-id [dump|show|patch|replace|undo|restore] [TARGET_FILE]"
+        exit 1
+      else
+        id=$gCurrentPlatformID
+        action="show"
+        _main
+    fi
   else
     id=$(_toLowerCase $1)
 
