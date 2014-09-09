@@ -1,10 +1,10 @@
-#!/bin/sh
+#!/bin/bash
 
 #
 # This script is a stripped/rewrite of AppleIntelSNBGraphicsFB.sh 
 #
 # Version 0.9 - Copyright (c) 2012 by † RevoGirl
-# Version 2.5 - Copyright (c) 2013 by Pike R. Alpha <PikeRAlpha@yahoo.com>
+# Version 2.9 - Copyright (c) 2013 by Pike R. Alpha <PikeRAlpha@yahoo.com>
 #
 #
 # Updates:
@@ -37,17 +37,35 @@
 #			-       forgotten device-id (0x0a2e) added.
 #			- v2.2  fixed _getOffset for Capri (Pike, August 2014)
 #			-       reset gPlatformIDs in function _showPlatformIDs to prevent duplicated entries.
-#			- v2.3  read property AAPL,ig-platform-id from ioreg and use it as default target.
+#			- v2.3  read property AAPL,ig-platform-id from ioreg and use it as default target (Pike, August 2014)
 #			-       helper functions _hexToMegaByte, _hexToPortName and _hexToPortNumber added.
-#			- v2.4  function _showColorizedData added.
-#           -       changed _hexToMegaByte a little.
-#           -       LVDS added to _hexToPortName.
-#			- v2.5  _showColorizedData now also support Capri.
+#			- v2.4  function _showColorizedData added (Pike, August 2014)
+#			-       changed _hexToMegaByte a little.
+#			-       LVDS added to _hexToPortName.
+#			- v2.5  _showColorizedData now also support Capri (Pike, August 2014)
 #			-       cleanups and comments added.
 #			-       function _printInfo added.
+#			- v2.6  export data to Azul-0x0d220003.dat (Pike, August 2014)
+#			-       read/import data from Azul-0x0d220003.dat
+#			- v2.7  error in _getOffset for Capri support fixed (Pike, August 2014)
+#			-       function _hexToPortNumber replaced by _getPortNumbers.
+#			-       function _hexToPortName replaced by _getConnectorNames.
+#			-       function _showColorizedData simplified, using the above new functions.
+#			- v2.8  _showMenu and _doAction added (Pike, September 2014)
+#			-       better/more flexible color support implemented.
+#			-       setting gExtraStyling to 0 now really works.
+#			-       function _confirmed added.
+#			-       now using bash instead of sh (we want echo -n to work).
+#			- v2.9  function _showColorizedData renamed to _showData  (Pike, September 2014)
+#			-       function _showPlainTextData removed.
+#			-       function _clearMenu renamed to _clearLines.
+#			-       functions _invalidMenuAction, _validateMenuAction and _showModifiedData added.
+#			-       functions _checkForDataFile, _setDataFilename and _setDataFilename added.
+#			-       improved capri support/fixed pointers to values in gDWords array.
+#			-       changed _initPortData to make it work with only two arguments.
 #
 
-gScriptVersion=2.5
+gScriptVersion=2.9
 
 #
 # Used to print the name of the running script
@@ -102,7 +120,7 @@ gPlatformIDs=""
 #
 # Default platformID (initialized by _readPlatformAAPL).
 #
-let gCurrentPlatformID=0
+let gPlatformID=0
 
 #
 # Change this to whatever full patch you want to use.
@@ -132,10 +150,24 @@ let USE_NM=1
 #
 # Output styling.
 #
-STYLE_RESET="[0m"
-STYLE_BOLD="[1m"
-STYLE_UNDERLINED="[4m"
+STYLE_RESET="\e[0m"
+STYLE_BOLD="\e[1m"
+STYLE_UNDERLINED="\e[4m"
 
+#
+# Color definitions.
+#
+COLOR_BLACK="\e[1m"
+COLOR_RED="\e[1;31m"
+COLOR_GREEN="\e[32m"
+COLOR_DARK_YELLOW="\e[33m"
+COLOR_MAGENTA="\e[1;35m"
+COLOR_PURPLE="\e[35m"
+COLOR_CYAN="\e[36m"
+COLOR_BLUE="\e[1;34m"
+COLOR_ORANGE="\e[31m"
+COLOR_GREY="\e[37m"
+COLOR_END="\e[0m"
 
 #
 #--------------------------------------------------------------------------------
@@ -148,7 +180,6 @@ function _DEBUG_PRINT()
       printf "$1"
   fi
 }
-
 
 #
 #--------------------------------------------------------------------------------
@@ -164,7 +195,6 @@ function _PRINT_WARNING()
   fi
 }
 
-
 #
 #--------------------------------------------------------------------------------
 #
@@ -179,6 +209,27 @@ function _PRINT_ERROR()
   fi
 }
 
+#
+#--------------------------------------------------------------------------------
+#
+
+function _unsetColors()
+{
+  STYLE_BOLD=""
+  STYLE_UNDERLINED=""
+
+  COLOR_BLACK=""
+  COLOR_RED=""
+  COLOR_GREEN=""
+  COLOR_DARK_YELLOW=""
+  COLOR_MAGENTA=""
+  COLOR_PURPLE=""
+  COLOR_CYAN=""
+  COLOR_BLUE=""
+  COLOR_ORANGE=""
+  COLOR_GREY=""
+  COLOR_END=""
+}
 
 #
 #--------------------------------------------------------------------------------
@@ -192,14 +243,13 @@ function _checkDataLength()
 
   if [[ ${#data} -ne $gDataBytes*2+2 ]];
     then
-      _PRINT_ERROR "$id) $2_PLATFORM_INFO=\"0:... must be ${gDataBytes} bytes!\n" ${#data}
+      _PRINT_ERROR "$gPlatformID) $2_PLATFORM_INFO=\"0:... must be ${gDataBytes} bytes!\n" ${#data}
       printf      "       You may need to run: ./$gScriptName dump\n"
       printf      "       to extract the data from the binary!\n"
       printf      "       Tip: Do not add comments to the data sections!\n\n"
       exit -1
   fi
 }
-
 
 #
 #--------------------------------------------------------------------------------
@@ -224,7 +274,6 @@ function _showDelayedDots()
   fi
 }
 
-
 #
 #--------------------------------------------------------------------------------
 #
@@ -238,7 +287,7 @@ function _initPatchedPlatformInfo()
   #
   # See also: https://pikeralpha.wordpress.com/2014/08/20/yosemite-dp6-with-hd4600/
 
-  case "$id" in
+  case "$gPlatformID" in
     #
     # OS X 10.10 Build 14A314h (Developer Preview 5)
     #
@@ -555,7 +604,6 @@ function _initPatchedPlatformInfo()
   _checkDataLength "$PATCHED_PLATFORM_INFO" PATCHED
 }
 
-
 #
 #--------------------------------------------------------------------------------
 #
@@ -573,7 +621,7 @@ function _initFactoryPlatformInfo()
   #
   # 2.) Paste the data into this script
 
-  case "$id" in
+  case "$gPlatformID" in
     #
     # OS X 10.10 Build 14A314h (Developer Preview 5)
     #
@@ -894,21 +942,21 @@ function _initFactoryPlatformInfo()
   _checkDataLength "$FACTORY_PLATFORM_INFO" FACTORY
 }
 
-
 #
 #--------------------------------------------------------------------------------
 #
 
 function _reverseBytes()
 {
-  if [[ ${#1} -eq 8 ]];
+  local bytes=$(echo $1 | tr -d ' ')
+
+  if [[ ${#bytes} -eq 8 ]];
     then
-      echo 0x${1:6:2}${1:4:2}${1:2:2}${1:0:2}
+      echo 0x${bytes:6:2}${bytes:4:2}${bytes:2:2}${bytes:0:2}
     else
-      echo 0x${1:14:2}${1:12:2}${1:10:2}${1:8:2}${1:6:2}${1:4:2}${1:2:2}${1:0:2}
+      echo 0x${bytes:14:2}${bytes:12:2}${bytes:10:2}${bytes:8:2}${bytes:6:2}${bytes:4:2}${bytes:2:2}${bytes:0:2}
   fi
 }
-
 
 #
 #--------------------------------------------------------------------------------
@@ -921,7 +969,6 @@ function _readFile()
 
   echo `dd if="$TARGET_FILE" bs=1 skip=$offset count=$length 2> /dev/null | xxd -l $length -ps -c $length`
 }
-
 
 #
 #--------------------------------------------------------------------------------
@@ -938,7 +985,6 @@ function _getSizeOfLoadCommands()
   #
   echo $(_reverseBytes ${machHeaderData:40:8})
 }
-
 
 #
 #--------------------------------------------------------------------------------
@@ -1002,7 +1048,6 @@ function _initSymbolTableVariables
   _PRINTF_ERROR "Failed to get LC_SYMTAB data!\n"
   exit -1
 }
-
 
 #
 #--------------------------------------------------------------------------------
@@ -1131,14 +1176,13 @@ function _getConnectorTableOffset()
   fi
 }
 
-
 #
 #--------------------------------------------------------------------------------
 #
 
 function _dumpConnectorData()
 {
-  local let offset=0
+  local offset=0 characters=0
   let characters=($gDataBytes*2)
 
   printf "    $1) FACTORY_PLATFORM_INFO=\"0:\n"
@@ -1146,8 +1190,8 @@ function _dumpConnectorData()
   while [ $offset -lt $characters ];
     do
       printf "                "
-      printf "${2:$offset:4} ${2:($offset+4):4} ${2:($offset+8):4} ${2:($offset+12):4} "
-      printf "${2:($offset+16):4} ${2:($offset+20):4} ${2:($offset+24):4} ${2:($offset+28):4}"
+      printf "${2:offset:4} ${2:(offset+4):4} ${2:(offset+8):4} ${2:(offset+12):4} "
+      printf "${2:(offset+16):4} ${2:(offset+20):4} ${2:(offset+24):4} ${2:(offset+28):4}"
       let offset+=32
 
       if [ $offset -eq $characters ];
@@ -1160,7 +1204,6 @@ function _dumpConnectorData()
 
   printf "                ;;\n\n"
 }
-
 
 #
 #--------------------------------------------------------------------------------
@@ -1211,7 +1254,6 @@ function _printInfo()
   fi
 }
 
-
 #
 #--------------------------------------------------------------------------------
 #
@@ -1219,13 +1261,14 @@ function _printInfo()
 function _showPlatformIDs()
 {
   #
-  # Is this a recursive call?
+  # Are we asked to collect platformIDs?
   #
-  if [[ $# -eq 0 ]];
+  if [[ $# -eq 1 ]];
     then
+      #
+      # Yes. Collect platformIDs, but do not dump the data.
+      #
       _getConnectorTableData 1
-    else
-      clear
   fi
 
   let index=0
@@ -1234,7 +1277,7 @@ function _showPlatformIDs()
   #
   local data=($gPlatformIDs)
 
-  printf "The supported platformIDs are:\n------------------------------\n\n"
+  printf "The supported platformIDs are:\n\n"
 
   for platformID in ${data[@]}
   do
@@ -1244,35 +1287,77 @@ function _showPlatformIDs()
 
   echo ''
 
-  read -p "Please choose a target platformID (0/1-${index}) ? " selection
-
-  if [[ $selection -eq 0 ]];
+  if [[ $1 -eq 0 ]];
     then
-      printf "Aborting "
-      _showDelayedDots "\n\n"
-      exit -0
+      local cancelExitText='Cancel'
     else
-      if [[ $selection -gt 0 && $selection -le $index ]];
-        then
-          id="${data[$selection-1]}"
-          echo ''
-          #
-          # Reset variable to prevent duplicated entries.
-          #
-          gPlatformIDs=""
-          _getOffset
-        else
-          echo ''
-          _PRINT_ERROR "Invalid selection!\nRetrying "
-          _showDelayedDots
-          #
-          # Argument '1' signals a recursive call.
-          #
-          _showPlatformIDs 1
-      fi
+      local cancelExitText='Exit'
   fi
-}
 
+  read -p "Please choose a target platform-id ($cancelExitText/1-${index}) ? " selection
+  case "$selection" in
+    c|C          ) if [[ $1 -ne 0 ]];
+                     then
+#                      _PRINT_ERROR "Invalid selection!\n       Retrying "
+#                      _showDelayedDots
+#                      _clearLines $index+6
+                       _invalidMenuAction $index
+                       _showPlatformIDs $1
+                     else
+                       _clearLines $index+4
+                       _showMenu
+                   fi
+                   ;;
+
+    e|E          ) if [[ $1 -eq 0 ]];
+                     then
+#                      _PRINT_ERROR "Invalid selection!\n       Retrying "
+#                      _showDelayedDots
+#                      _clearLines $index+6
+                       _invalidMenuAction $index+6
+                       _showPlatformIDs $1
+                     else
+                       printf 'Aborting script '
+                       _showDelayedDots
+                       _clearLines $index+5
+                       echo 'Done'
+                       exit -0
+                   fi
+                   ;;
+
+    *[[:alpha:]]*) #_PRINT_ERROR "Invalid selection!\n       Retrying "
+#                  _showDelayedDots
+#                  _clearLines $index+6
+                   _invalidMenuAction $index
+                   _showPlatformIDs $1
+                   ;;
+
+    [[:digit:]]* ) if [[ $selection -gt 0 && $selection -le $index ]];
+                     then
+                       gPlatformID="${data[$selection-1]}"
+                       _clearLines $index+4
+
+#                      if [[ $1 -eq 1 ]];
+#                        then
+#                          _getOffset
+#                      fi
+
+                     else
+#                      _PRINT_ERROR "Invalid selection!\n       Retrying "
+#                      _showDelayedDots
+#                      _clearLines $index+6
+                       _invalidMenuAction $index
+                       _showPlatformIDs $1
+                   fi
+                   ;;
+
+    *            ) # _PRINT_ERROR "Invalid selection!\n       Retrying "
+#                  _showDelayedDots
+#                  _clearLines $index+6
+                   _invalidMenuAction $index
+                   ;;
+  esac
+}
 
 #
 #--------------------------------------------------------------------------------
@@ -1287,7 +1372,10 @@ function _getConnectorTableData()
 
   local platformID=0
   local let index=$connectorTableOffset
-
+  #
+  # Reset variable to prevent duplicated entries.
+  #
+  gPlatformIDs=""
   #
   # Dump connector table data.
   #
@@ -1317,7 +1405,6 @@ function _getConnectorTableData()
     done
 }
 
-
 #
 #--------------------------------------------------------------------------------
 #
@@ -1334,12 +1421,12 @@ function _getDataSegmentOffset()
   if [[ $__DataMatch == $__DATA ]];
     then
       let __dataOffset+=16
-      data=$(echo `xxd -s+$__dataOffset -l 4 -ps "$TARGET_FILE"`)
+      local data=$(echo `xxd -s+$__dataOffset -l 4 -ps "$TARGET_FILE"`)
       let dataSegmentOffset="0x${data:6:2}${data:4:2}${data:2:2}${data:0:2}"
       _DEBUG_PRINT "dataSegmentOffset: ${dataSegmentOffset}\n"
 
       let __dataOffset+=8
-      data=$(echo `xxd -s+$__dataOffset -l 4 -ps "$TARGET_FILE"`)
+      local data=$(echo `xxd -s+$__dataOffset -l 4 -ps "$TARGET_FILE"`)
       let dataSegmentLength="0x${data:6:2}${data:4:2}${data:2:2}${data:0:2}"
       _DEBUG_PRINT "dataSegmentLength: ${dataSegmentLength}\n"
     else
@@ -1347,49 +1434,89 @@ function _getDataSegmentOffset()
   fi
 }
 
-
 #
 #--------------------------------------------------------------------------------
 #
 
 function _getOffset()
 {
+  local capriMatch=0
+
   _getDataSegmentOffset
   #
-  # Not used: too slow without nm.
+  # Do we have a given/detected platformID?
   #
-  # _getConnectorTableOffset
-  platformIDString="${id:8:2}${id:6:2} ${id:4:2}${id:2:2}"
-
-  _DEBUG_PRINT "platformIDString: $platformIDString\n"
-
-  matchingData=$(xxd -s +$dataSegmentOffset -l $dataSegmentLength "$TARGET_FILE" | grep "$platformIDString" | tr -d ':')
-  #
-  # Not used: too slow without nm.
-  #
-  # matchingData=$(xxd -s $connectorTableOffset -l 4096 "$TARGET_FILE" | grep "$platformIDString" | tr -d ':')
-
-  data=($matchingData);
-  let fileOffset="0x${data[0]}"
-
-  if [[ "$platformIDString" == "${data[1]} ${data[2]}" || "$platformIDString" == "${data[5]} ${data[6]}" ]];
+  if [[ gPlatformID -eq 0 ]];
     then
-      printf "AAPL,ig-platform-id: $id ("
-      printf "$(_printInfo ${id:2:4})"
-      printf ") found @ 0x%x/$fileOffset\n" $fileOffset
       #
-      # Done.
+      # No. Show list with data files/supported platformIDs.
       #
-      return;
+      _checkForDataFile
+  fi
+  #
+  # Do we have a platformID (now)?
+  #
+  if [[ gPlatformID -gt 0 ]];
+    then
+      #
+      # Yes de do, but it may be unsupported so we are going to check it here.
+      #
+      printf "AAPL,ig-platform-id: $gPlatformID ($(_printInfo ${gPlatformID:2:4}))"
+
+      platformIDString="${gPlatformID:8:2}${gPlatformID:6:2} ${gPlatformID:4:2}${gPlatformID:2:2}"
+
+      _DEBUG_PRINT "platformIDString: $platformIDString\n"
+
+      local matchingData=$(xxd -s +$dataSegmentOffset -l $dataSegmentLength "$TARGET_FILE" | grep "$platformIDString" | tr -d ':')
+      local data=($matchingData);
+      let fileOffset="0x${data[0]}"
+
+      if [[ fileOffset -gt 0 ]];
+        then
+          if [[ gScriptType -eq CAPRI && "$platformIDString" == "${data[5]} ${data[6]}" ]];
+            then
+              let fileOffset+=8;
+              let capriMatch=1
+          fi
+
+          if [[ capriMatch -eq 1 || "$platformIDString" == "${data[1]} ${data[2]}" ]];
+            then
+              printf " found @ 0x%x/$fileOffset\n" $fileOffset
+              _setDataFilename
+              #
+              # Done (offset found in kext).
+              #
+              return;
+          fi
+        else
+          printf " NOT found in kext!\n\n"
+          _PRINT_ERROR 'Retrying '
+          sleep 0.500
+          _showDelayedDots
+          #
+          # Zero gPlatformID (we want it to call _checkForDataFile)
+          #
+          let gPlatformID=0
+          #
+          # Clear screen (3 lines).
+          #
+          _clearLines 3
+          #
+          # Recursive call.
+          #
+          _getOffset
+      fi
     else
-      _PRINT_ERROR "AAPL,ig-platform-id: $id NOT found!\n\n"
       #
-      # Show list with platform IDs.
+      # gPlatformID is still zero (should never happen but anyway).
       #
-      _showPlatformIDs
+      _showPlatformIDs 1
+      #
+      # Recursive call.
+      #
+      _getOffset
   fi
 }
-
 
 #
 #--------------------------------------------------------------------------------
@@ -1399,7 +1526,6 @@ function _toLowerCase()
 {
   echo "`echo $1 | tr '[:upper:]' '[:lower:]'`"
 }
-
 
 #
 #--------------------------------------------------------------------------------
@@ -1431,7 +1557,6 @@ function _checkFilename()
   fi
 }
 
-
 #
 #--------------------------------------------------------------------------------
 #
@@ -1446,8 +1571,8 @@ function _patchFile()
         then
           _PRINT_ERROR "Nothing to patch - factory/patched data is the same!\n\n"
           printf "Open $gScriptName with nano (example) and\n"
-          printf "change the data labeled $id) ${STYLE_BOLD}PATCHED${STYLE_RESET}_PLATFORM_INFO=\"0:\n\n"
-          printf "Do NOT patch the data labeled $id) ${STYLE_BOLD}FACTORY${STYLE_RESET}_PLATFORM_INFO=\"0:\n"
+          printf "change the data labeled $gPlatformID) ${STYLE_BOLD}PATCHED${STYLE_RESET}_PLATFORM_INFO=\"0:\n\n"
+          printf "Do NOT patch the data labeled $gPlatformID) ${STYLE_BOLD}FACTORY${STYLE_RESET}_PLATFORM_INFO=\"0:\n"
           printf "because the factory data is used to RESTORE data (read: undo patch)!\n"
           printf "Exiting ...\n"
           exit -1
@@ -1460,23 +1585,42 @@ function _patchFile()
       echo $FACTORY_PLATFORM_INFO | xxd -c $gDataBytes -r | dd of="$TARGET_FILE" bs=1 seek=${fileOffset} conv=notrunc
   fi
 
-  read -p "Do you want to reboot now? (y/n) " rebootChoice
-  case "$rebootChoice" in
-    y|Y) reboot now
-         ;;
-  esac
+  if ( _confirmed 'Do you want to reboot now' );
+    then
+      reboot now
+  fi
 }
-
 
 #
 #--------------------------------------------------------------------------------
 #
 
-function _showPlainTextData()
+function _confirmed()
 {
-  xxd -s +$fileOffset -l $gDataBytes -c 16 "$TARGET_FILE"
+  local answer
+
+  read -p "$1? (y/n) " answer
+  case "$answer" in
+    y|Y) return 0 ;;
+    n|N) return 1 ;;
+    *  ) _PRINT_ERROR 'Invalid choice ... \n       Retrying '
+         _showDelayedDots
+         _clearLines 3
+         _confirmed "$1"
+         ;;
+  esac
 }
 
+#
+#--------------------------------------------------------------------------------
+#
+
+function _megaBytesToHex()
+{
+  local decimalValue="$1"
+  let numberOfBytes="decimalValue <<= 20"
+  echo $(printf "0x%08x" $numberOfBytes)
+}
 
 #
 #--------------------------------------------------------------------------------
@@ -1486,14 +1630,12 @@ function _hexToMegaByte()
 {
   local value=$(_reverseBytes $1)
 
-  if [[ $value -ge 1024 ]];
+  if [[ value -ge 1024 ]];
     then
-      if [[ $value -ge 1048576 ]];
+      if [[ value -ge 1048576 ]];
         then
-#         let value=($value/1024/1024)
           let value="value >>= 20"
         else
-#         let value=($value/1024)
           let "value >>= 10"
       fi
     else
@@ -1503,14 +1645,13 @@ function _hexToMegaByte()
   echo $value
 }
 
-
 #
 #--------------------------------------------------------------------------------
 #
 
 function _hexToPortNumber()
 {
-  local  portNumber=${1:0:4}
+  local portNumber=${1:0:4}
   #
   # Check for unused port.
   #
@@ -1546,137 +1687,1020 @@ function _hexToPortNumber()
   fi
 }
 
+#
+#--------------------------------------------------------------------------------
+#
+
+function _savePlatformData()
+{
+  #
+  # Skip checksum checks and confirmation?
+  #
+  if [[ $# -eq 1 ]];
+    then
+      #
+      # Yes. Silently update/write to the file.
+      #
+      echo -n "${gDWords[@]}" | tr -d ' ' > "$gDataFile"
+      cp "$gDataFile" /tmp/framebuffer.dat
+    else
+      #
+      # step 1: echo gDWords without the trailing newlines character (bash only).
+      # step 2: remove spaces.
+      # step 3: call sum to get the checksum and block count.
+      # step 4: print the first argument, being the checksum.
+      #
+      local dataCRC=$(echo -n "${gDWords[@]}" | tr -d ' ' | sum | awk '{print $1}')
+      #
+      # Here we basically do the same (from file) but we can skip step 2.
+      #
+      local fileCRC=$(cat /tmp/framebuffer.dat | sum | awk '{print $1}')
+      #
+      # Different checksums?
+      #
+      if [[ dataCRC -ne fileCRC ]];
+        then
+          #
+          # Yes. Ask user to confirm the action.
+          #
+          if ( _confirmed 'Do you want to save your changes' );
+            then
+              #
+              # Here the actual writing takes place, without the trailing newline character.
+              #
+              echo -n "${gDWords[@]}" | tr -d ' ' > "$gDataFile"
+              cp "$gDataFile" /tmp/framebuffer.dat
+          fi
+
+          _clearLines 1
+      fi
+  fi
+}
 
 #
 #--------------------------------------------------------------------------------
 #
 
-function _hexToPortName()
+function _updatePlatformData()
+{
+  local data index=0
+  #
+  # Loop through all (56 for Azul) dwords.
+  #
+  for dword in "${gDWords[@]}"
+  do
+    data[index++]=$dword
+  done
+
+  PATCHED_PLATFORM_INFO="0:${data[@]}"
+}
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _getPortName()
 {
   local text=''
 
   case "$1" in
-    0x01000000) text='VGA' ;;
-    0x02000000) text='LVDS' ;;
-    0x04000000) text='eDP' ;;
-    0x00020000) text='DVI' ;;
-    0x00040000) text='DisplayPort' ;;
-    0x00080000) text='HDMI' ;;
-    *         ) text='Unknown' ;;
+    01000000) text='VGA' ;;
+    02000000) text='LVDS' ;;
+    04000000) text='eDP' ;;
+    00020000) text='DVI' ;;
+    00040000) text='DisplayPort' ;;
+    00080000) text='HDMI' ;;
+    *       ) text='Unknown' ;;
   esac
 
-  echo "\e[31m$text\e[0m"
+  echo "${COLOR_ORNGE}$text${COLOR_END}"
 }
-
 
 #
 #--------------------------------------------------------------------------------
 #
 
-function _showColorizedData()
+function _clearLines()
 {
-  local data=($(xxd -s +$fileOffset -l $gDataBytes -c 16 "$TARGET_FILE" | sed -e 's/\. \.//g'))
+  # local lines=0
+  let lines=$1
 
-  printf "${data[0]} \e[1m${data[1]} ${data[2]}\e[0m ${data[3]} "
-  printf "${data[4]} \e[1;31m${data[5]} ${data[6]}\e[0m \e[1;34m${data[7]} ${data[8]}\e[0m ("
+  if [[ ! lines ]];
+    then
+      let lines=1
+  fi
 
-  local stolenMemory=$(_hexToMegaByte "${data[5]}${data[6]}")
-  local framebufferMemory=$(_hexToMegaByte "${data[7]}${data[8]}")
+  for ((line=0; line<$lines; line++));
+  do
+    printf "\e[A\e[K"
+  done
+}
 
-  printf "\e[1;31m%d MB\e[0m BIOS-allocated memory, \e[1;34m%d MB\e[0m framebuffer)\n" $stolenMemory $framebufferMemory
+#
+#--------------------------------------------------------------------------------
+#
 
+function _invalidMenuAction()
+{
+  _PRINT_ERROR "Invalid choice!\n       Retrying "
+  _showDelayedDots
+  _clearLines $1+6
+}
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _validateMenuAction()
+{
+  local text=$1
+  local items=$2
+  local selected=$3
+  local action=$4
+
+  echo ''
+  read -p "$text (Cancel/1-$items) ? " choice
+  case $choice in
+    c|C          ) _clearLines $items+4
+
+                   if [[ $action -eq 0 ]];
+                     then
+                       return
+                     else
+                       _showMenu
+                   fi
+                   ;;
+
+    *[[:alpha:]]*) _invalidMenuAction $items
+                   #
+                   # Is action a function?
+                   #
+                   if [[ $action =~ '_' ]];
+                     then
+                       #
+                       # Yes. Call target function.
+                       #
+                       $action
+                     else
+                       #
+                       # No. Call _doAction with target action.
+                       #
+                       _doAction $action
+                   fi
+                   ;;
+
+    [[:digit:]]* ) if [[ $choice -eq 0 || $choice -eq $selected || $choice -gt $items ]];
+                     then
+                       _invalidMenuAction $items
+                       _doAction $action
+                     else
+                       _clearLines $items+4
+                       return $choice
+                   fi
+                   ;;
+
+    *            ) _invalidMenuAction $items
+                   _doAction $action
+                   ;;
+  esac
+}
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _showModifiedData()
+{
+  if [[ $1 -eq 1 ]];
+    then
+      _clearLines $gRowsInTable+1
+      echo "Source file: $gDataFile"
+    else
+      _clearLines $gRowsInTable+2
+  fi
+
+  _showData 1
+}
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _doAction()
+{
+  local index=0 items=0 action=$1
+
+  case "$action" in
+    1  ) _showPlatformIDs 0
+         local targetID=$(_reverseBytes "${gPlatformID:2:8}")
+         gDWords[0]="${targetID:2:4}"
+         gDWords[1]="${targetID:6:4}"
+         _setDataFilename
+         #
+         # Argument '1' used to skip the checksum checks and confirmation.
+         #
+         _savePlatformData 1
+
+         _clearLines 2
+         #
+         # Argument '1' used to update the file name.
+         #
+         _showModifiedData 1
+         ;;
+
+    2  ) printf "Change BIOS-allocated memory to:\n\n"
+         local stolenMemory=$(_hexToMegaByte "${gDWords[4]}${gDWords[5]}")
+         let index=0
+         let selected=0
+
+         if [[ $gScriptType -eq CAPRI ]];
+           then
+             # Ivy Bridge
+             local values=(32 64 96 128 160 192 224 256 288 320 352 384 416 448 480 512 1024)
+           else
+             # Sandy Bridge and Haswell
+             local values=(32 64 96 128 160 192 224 256 288 320 352 384 416 448 480 512)
+         fi
+
+         for value in "${values[@]}"
+         do
+           let index++
+
+           if [[ $value == $stolenMemory ]];
+             then
+               let selected=$index
+               printf "[    ] %4s MB (current value)\n"  $value
+             else
+               printf "[ %2d ] %4s MB\n" $index $value
+           fi
+         done
+
+         _validateMenuAction "Please choose the amount of memory" $index $selected $action
+
+         if (( $? > 0 ));
+           then
+             local value=$(_megaBytesToHex "${values[$choice-1]}")
+             gDWords[4]=${value:8:2}${value:6:2}
+             gDWords[5]=${value:4:2}${value:2:2}
+             _showModifiedData
+         fi
+
+#        echo ''
+#        let items="${#values[@]}"
+#        read -p "Please choose the amount of memory (Cancel/1-$items) ? " choice
+#        case $choice in
+#          c|C          ) _clearLines $items+4
+#                         _showMenu
+#                         ;;
+#
+#          *[[:alpha:]]*) _PRINT_ERROR "Invalid choice!\n        Retrying "
+#                         _showDelayedDots
+#                         _clearLines $items+6
+#                         _doAction $1
+#                         ;;
+#
+#          [[:digit:]]* ) if [[ $choice -eq 0 || $choice -gt $items || "${values[$choice-1]}" -eq $stolenMemory ]];
+#                           then
+#                             _PRINT_ERROR "Invalid choice!\n       Retrying "
+#                             _showDelayedDots
+#                             _clearLines $items+6
+#                             _doAction $1
+#                         fi
+#
+#                         local value=$(_megaBytesToHex "${values[$choice-1]}")
+#                         gDWords[4]=${value:8:2}${value:6:2}
+#                         gDWords[5]=${value:4:2}${value:2:2}
+#                         _clearLines $items+6+$gRowsInTable
+#                         _showData 1
+#                         ;;
+#
+#          *            ) _PRINT_ERROR "Invalid choice!\n        Retrying "
+#                         _showDelayedDots
+#                         _clearLines $items+6
+#                         _doAction $1
+#                         ;;
+#        esac
+         ;;
+
+    3  ) printf "Change frame buffer memory to:\n\n"
+         #
+         # Values taken from the AppleIntelFramebufferAzul.kext binary
+         #
+         local value currentValue
+         local fbMemoryValues=(00000001 00003001 00008001 00002002)
+         let index=0
+         let selected=0
+
+         for value in "${fbMemoryValues[@]}"
+         do
+           let index++
+
+           if [[ $value == "${gDWords[6]}${gDWords[7]}" ]];
+             then
+               let selected=$index
+               printf "[   ] %d MB (current)\n" $(_hexToMegaByte $value)
+             else
+               printf "[ $index ] %d MB\n" $(_hexToMegaByte $value)
+           fi
+         done
+
+         _validateMenuAction "Please choose the amount of memory you want" 4 $selected $action
+
+         if (( $? > 0 ));
+           then
+             value=${fbMemoryValues[choice-1]}
+             gDWords[6]=${value:0:4}
+             gDWords[7]=${value:4:4}
+             _showModifiedData
+         fi
+
+#        echo ''
+#        let items=$index
+#
+#        read -p "Please choose the amount of memory you want (Cancel/1-$items) ? " choice
+#        case $choice in
+#          c|C  ) _clearLines $items+4
+#                 _showMenu
+#                 ;;
+#
+#          [1-4]) value=${fbMemoryValues[$choice-1]}
+#                 gDWords[6]=${value:0:4}
+#                 gDWords[7]=${value:4:4}
+#                 _clearLines $items+6+$gRowsInTable
+#                 _showData 1
+#                 ;;
+#
+#          *    ) _PRINT_ERROR "Invalid choice!\n       Retrying "
+#                 _showDelayedDots
+#                 _clearLines $items+6
+#                 _doAction $1
+#                 ;;
+#        esac
+         ;;
+
+    4  ) printf "Change cursor bytes to:\n\n"
+         #
+         # Values taken from the AppleIntelFramebufferAzul.kext binary
+         #
+         local value currentValue
+         local cursorBytes=(00000000 00005000 00006000 00009000 0000f000 00005001 00002002)
+         local wordCombos=('0200 0000 0101 0000' '0f00 0000 0101 0000' '0f00 0000 0101 0000' \
+                           'd600 0000 0505 0000' '0400 000 00000 0700' '1e00 0000 0505 0900' \
+                           '8e04 0000 0005 0500')
+
+         let index=0
+         let selected=0
+
+         for value in "${cursorBytes[@]}"
+         do
+           let index++
+
+           if [[ $value == "${gDWords[8]}${gDWords[9]}" ]];
+             then
+               let selected=$index
+               printf "[   ] %2d MB (current)\n" $(_hexToMegaByte $value)
+             else
+               printf "[ $index ] %2d MB\n" $(_hexToMegaByte $value)
+           fi
+         done
+
+         _validateMenuAction "Please choose the amount of cursor bytes" 7 $selected $action
+
+         if (( $? > 0 ));
+           then
+             value=${cursorBytes[$choice-1]}
+             gDWords[8]=${value:0:4}
+             gDWords[9]=${value:4:4}
+             #
+             # Update ditto words.
+             #
+             local words=(${wordCombos[$choice-1]})
+             gDWords[44]=${words[0]}
+             gDWords[45]=${words[1]}
+             gDWords[46]=${words[2]}
+             gDWords[47]=${words[3]}
+             _showModifiedData
+         fi
+
+#        echo ''
+#        let items=$index
+
+#        read -p "Please choose the amount of cursor bytes you want (Cancel/1-$items) ? " choice
+#        case $choice in
+#          c|C  ) _clearLines $items+4
+#                 _showMenu
+#                 ;;
+#
+#          [1-7]) value=${cursorBytes[$choice-1]}
+#                 gDWords[8]=${value:0:4}
+#                 gDWords[9]=${value:4:4}
+#                 _clearLines $items+6+$gRowsInTable
+#                 _showData 1
+#                 ;;
+#
+#          *    ) _PRINT_ERROR "Invalid choice!\n       Retrying "
+#                 _showDelayedDots
+#                 _clearLines $items+6
+#                 _doAction $1
+#                 ;;
+#        esac
+         ;;
+
+    5  ) printf "Change Video Random Access Memory to:\n\n"
+         local value vramIndex
+
+         if [[ $gScriptType -eq CAPRI ]];
+           then
+             let vramIndex=8
+           else
+             let vramIndex=10
+         fi
+
+         local vram="${gDWords[vramIndex]}${gDWords[vramIndex+1]}"
+         #
+         # Values taken from the AppleIntelFramebufferAzul/Capri.kext binaries.
+         #
+         local vramValues=(00000010 00000018 00000030 00000020 00000040 00000060)
+
+         let index=0
+         let selected=0
+
+         for value in "${vramValues[@]}"
+         do
+           let index++
+
+           if [[ $value == $vram ]];
+             then
+               let selected=$index
+               printf "[   ] %4d MB (current)\n" $(_hexToMegaByte $value)
+             else
+               printf "[ $index ] %4d MB\n" $(_hexToMegaByte $value)
+           fi
+         done
+
+         _validateMenuAction "Please choose the amount of VRAM" 6 $selected $action
+
+         if (( $? > 0 ));
+           then
+             value=${vramValues[choice-1]}
+              gDWords[vramIndex]=${value:0:4}
+              gDWords[vramIndex+1]=${value:4:4}
+             _showModifiedData
+         fi
+
+#        echo ''
+#        let items=$index
+#
+#        read -p "Please choose the amount of memory you want (Cancel/1-$items) ? " choice
+#        case $choice in
+#          c|C  ) _clearLines $items+4
+#                 _showMenu
+#                 ;;
+#
+#          [1-6]) value=${vramValues[$choice-1]}
+#
+#                 if [[ $value == "${gDWords[10]}${gDWords[11]}" ]];
+#                   then
+#                     _PRINT_ERROR "Invalid choice!\n       Retrying "
+#                     _showDelayedDots
+#                     _clearLines $items+6
+#                     _doAction $1
+#                   else
+#                     gDWords[10]=${value:0:4}
+#                     gDWords[11]=${value:4:4}
+#                     _clearLines $items+6+$gRowsInTable
+#                     _showData 1
+#                 fi
+#                 ;;
+#
+#          *    ) _PRINT_ERROR "Invalid choice!\n       Retrying "
+#                 _showDelayedDots
+#                 _clearLines $items+6
+#                 _doAction $1
+#                 ;;
+#        esac
+         ;;
+
+    6  ) printf "Change backlight frequency to:\n\n"
+         local value bclIndex
+
+         if [[ $gScriptType -eq CAPRI ]];
+           then
+             let bclIndex=10
+           else
+             let bclIndex=12
+         fi
+
+         local frequency="${gDWords[bclIndex]}${gDWords[bclIndex+1]}"
+         #
+         # Values taken from the AppleIntelFramebufferAzul/Capri.kext binaries.
+         #
+         local bclFrequency=(6c050000 10070000 a1070000 d90a0000 99140000)
+
+         let index=0
+         let selected=0
+
+         for value in "${bclFrequency[@]}"
+         do
+           let index++
+
+           if [[ $value == $frequency ]];
+             then
+               let selected=$index
+               printf "[   ] %4d Hz (current)\n" $(_reverseBytes $value)
+             else
+               printf "[ %d ] %4d Hz\n" $index $(_reverseBytes $value)
+           fi
+         done
+
+         _validateMenuAction "Please choose a backlight frequency" 5 $selected $action
+
+         if (( $? > 0 ));
+           then
+             frequency=${bclFrequency[choice-1]}
+             gDWords[bclIndex]=${frequency:0:4}
+             gDWords[bclIndex+1]=${frequency:4:4}
+             #
+             # Update the curve value (Apple is uses the same value).
+             #
+             gDWords[bclIndex+2]=${gDWords[bclIndex]}
+             gDWords[bclIndex+3]=${gDWords[bclIndex+1]}
+             _showModifiedData
+         fi
+
+#        echo ''
+#        read -p "Please choose a connector type (Cancel/1-$index) ? " choice
+#        case $choice in
+#          c|C  ) _clearLines $index+4
+#                 _showMenu
+#                 ;;
+#
+#          [1-5]) frequency=${bclFrequency[$choice-1]}
+#                 gDWords[12]=${frequency:0:4}
+#                 gDWords[13]=${frequency:4:4}
+                  #
+                  # Update the curve value (Apple is using a synchronised value).
+                  #
+#                 gDWords[14]=${gDWords[12]}
+#                 gDWords[15]=${gDWords[13]}
+#                 _clearLines $index+6+$gRowsInTable
+#                 _showData 1
+#                 ;;
+#
+#          *    ) _PRINT_ERROR "Invalid choice!\n       Retrying "
+#                 _showDelayedDots
+#                 _clearLines $index+6
+#                 _doAction $1
+#                 ;;
+#        esac
+         ;;
+
+    7  ) printf "The backlight frequency and maximum backlight PWM (Pulse Width Modulation)\n"
+         printf "are synchronised in this version. At least until I figured out what to do!\n"
+         sleep 5
+         _clearLines 2
+         _showMenu
+         ;;
+
+    8  ) printf "Choose the port you like to change:\n\n"
+         let index=0
+         let selected=0
+
+         for port in "${gPortNumbers[@]}"
+         do
+           printf "[ %d ] port ${gPortNumbers[index]} (${gConnectorNames[index++]} connector)\n" $index
+         done
+
+         _validateMenuAction "Please choose the connector" 4 0 $action
+
+         if (( $? > 0 ));
+           then
+             local portData=(${gPortData[choice-1]})
+         fi
+
+#        echo ''
+#        let items=$index
+#
+#        read -p "Please choose the connector (Cancel/1-$items) ? " choice
+#        case $choice in
+#          c|C  ) _clearLines $items+4
+#                 _showMenu
+#                 ;;
+#
+#          [1-4]) _clearLines $items+4
+#                 local portData=(${gPortData[$choice-1]})
+#                 ;;
+#
+#          *    ) _PRINT_ERROR "Invalid choice!\n       Retrying "
+#                 _showDelayedDots
+#                 _clearLines $items+6
+#                 _doAction $1
+#                 ;;
+#        esac
+
+         printf "Change connector type for port ${gPortNumbers[choice-1]} to:\n\n"
+
+         local connectorValues=(01000000 02000000 04000000 00020000 00040000 00080000)
+         local connector=${portData[3]}
+         let index=0
+
+         for value in "${connectorValues[@]}"
+         do
+           local connectorName="${COLOR_ORANGE}"$(_getPortName $value)"${COLOR_END}"
+
+           if [[ $connector == "0x${connectorValues[index++]}" ]];
+             then
+               let selected=$index
+               printf "[   ] $connectorName connector (current)\n"
+             else
+               printf "[ $index ] $connectorName connector\n"
+           fi
+         done
+
+         _validateMenuAction "Please choose a connector type" 6 $selected $action
+
+         if (( $? > 0 ));
+           then
+             local connector=${connectorValues[$choice-1]}
+             let connectorIndex=${portData[2]}
+             gDWords[connectorIndex]=${connector:0:4}
+             gDWords[connectorIndex+1]=${connector:4:4}
+             _showModifiedData
+         fi
+
+#        echo ''
+#        let items="${#connectorValues[@]}"
+#
+#        read -p "Please choose a connector type (Cancel/1-$items) ? " choice
+#        case $choice in
+#          c|C  ) _clearLines $items+4
+#                 _showMenu
+#                 ;;
+#
+#          [1-6]) _clearLines $items+6+$gRowsInTable
+#                 local connector=${connectorValues[$choice-1]}
+#                 let connectorIndex=${portData[2]}
+#                 gDWords[connectorIndex]=${connector:0:4}
+#                 gDWords[connectorIndex+1]=${connector:4:4}
+#                 _showData 1
+#                 ;;
+#        esac
+         ;;
+
+    9  ) printf "Change number of framebuffers to:\n\n"
+         local numberOfFramebuffers
+         local words=(One Two Three Four)
+         let numberOfFramebuffers=${gDWords[3]:0:2}
+         let index=0
+
+         for value in "${words[@]}"
+         do
+           if [[ index -eq 0 ]];
+             then
+               local text="$value active frame buffer"
+             else
+               local text="$value active frame buffers"
+           fi
+
+           let index++
+
+           if [[ numberOfFramebuffers -eq index ]];
+             then
+               let selected=$index
+               printf "[   ] $text (current)\n"
+             else
+               printf "[ $index ] $text\n"
+           fi
+         done
+
+         _validateMenuAction "Please choose the number of frame buffers" 4 $selected $action
+
+         if (( $? > 0 ));
+           then
+             gDWords[3]="0${choice}${gDWords[3]:2:2}"
+             _showModifiedData
+         fi
+         ;;
+
+    p|P) if ( _confirmed 'Are you sure that you want to patch the kext with this data' );
+           then
+             _updatePlatformData
+             _patchFile
+           else
+             _clearLines $items+1
+             _showMenu
+         fi
+         ;;
+
+    g|G) echo "Base64 representation of framebuffer $gDataFile:"
+         echo '--------------------------------------------------------------------------------'
+         base64 -b 80 "$gDataFile"
+         echo ' '
+         exit 0
+         ;;
+
+    u|U) if ( _confirmed 'Are you sure that you want to restore the factory data' );
+           then
+             _initFactoryPlatformInfo
+             _patchFile "restore"
+           else
+             _clearLines $items+1
+             _showMenu
+         fi
+         ;;
+  esac
+}
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _showMenu()
+{
+  local moduleName=''
+
+  printf "What would you like to do next?\n\n"
+  printf "[ 1 ] Change the ${COLOR_BLACK}platform-id${COLOR_END}\n"
+  printf "[ 2 ] Change the amount of ${COLOR_RED}BIOS-allocated memory${COLOR_END}\n"
+  printf "[ 3 ] Change the amount of ${COLOR_BLUE}frame buffer memory${COLOR_END}\n"
+  printf "[ 4 ] Change the amount of ${COLOR_GREEN}cursor bytes${COLOR_END}\n"
+  printf "[ 5 ] Change the amount of ${COLOR_MAGENTA}VRAM${COLOR_END}\n"
+  printf "[ 6 ] Change the ${COLOR_CYAN}backlight frequency${COLOR_END}\n"
+  printf "[ 7 ] Change the ${COLOR_PURPLE}maximum backlight PWM${COLOR_END} (Pulse Width Modulation)\n"
+  printf "[ 8 ] Change the ${COLOR_ORANGE}connector type${COLOR_END}\n"
+  printf "[ 9 ] Change number of frame buffers\n"
+  printf "[ G ] Generate Base64 data\n"
+  printf "[ P ] Patch "
+
+  case $gScriptType in
+    SNB  ) moduleName='AppleIntelSNBGraphicsFB' ;;
+    CAPRI) moduleName='AppleIntelFramebufferCapri' ;;
+    AZUL ) moduleName='AppleIntelFramebufferAzul' ;;
+  esac
+
+  printf "$moduleName.kext\n"
+  printf "[ U ] Undo frame buffer changes\n\n"
+
+  read -p "Please choose the action to perform (Exit/1-9/G/P/U) ? " choice
+  case "$(_toLowerCase $choice)" in
+    [1-9gpu]) _clearLines 16
+              _doAction $choice
+              ;;
+
+    e|E     ) _clearLines 16
+              _savePlatformData
+              echo 'Done'
+              exit 0
+              ;;
+
+    *       ) _invalidMenuAction 12
+              _showMenu
+              ;;
+  esac
+}
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _initPortData()
+{
+  local portIndex=($1 $1+6 $1+12 $1+18)
+  local connectorIndex=($1+2 $1+8 $1+14 $1+20)
+  local unusedPort i=0 port=255 index=0
+
+  for portIndex in "${portIndex[@]}"
+  do
+    let port=0x${gDWords[portIndex]:0:2}
+
+    if [[ port -eq $2 ]];
+      then
+        let unusedPort=1
+      else
+        let unusedPort=0
+
+        if [[ $2 -eq 255 ]];
+          then
+            if [[ port -ne 0 ]];
+              then
+                let port+=4
+            fi
+          else
+            if [[ port -eq 1 ]];
+              then
+                let port=0
+              else
+                let port+=3
+            fi
+        fi
+    fi
+
+    let index=${connectorIndex[i]}
+    local connector=0x${gDWords[index]}${gDWords[index+1]}
+
+    case $connector in
+      0x01000000) connectorName='VGA' ;;
+      0x02000000) connectorName='LVDS' ;;
+      0x04000000) connectorName='eDP' ;;
+      0x00020000) connectorName='DVI' ;;
+      0x00040000) connectorName='DisplayPort' ;;
+      0x00080000) connectorName='HDMI' ;;
+      *         ) connectorName='Unknown' ;;
+    esac
+
+    gPortData[i]="${portIndex[i]} $port ${connectorIndex[i]} $connector $connectorName"
+
+    if [[ unusedPort -eq 1 ]];
+      then
+        port="unused"
+    fi
+
+    gPortNumbers[i]="${COLOR_BLUE}$port${COLOR_END}"
+    gConnectorNames[i++]="${COLOR_ORANGE}$connectorName${COLOR_END}"
+  done
+}
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _getDWords()
+{
+  local i index
+  #
+  # Do we have a matching data file or a filename?
+  #
+# if [[ ! -e /tmp/framebuffer.dat || $# -eq 0 ]];
+  if [[ $# -eq 0 ]];
+    then
+      #
+      # No. Extract data from kext and create the file.
+      #
+      xxd -s $fileOffset -l $gDataBytes -ps "$TARGET_FILE" | tr -d '\n' > /tmp/framebuffer.dat
+      cp /tmp/framebuffer.dat $gDataFile
+#     printf "Created: $gDataFile\n"
+    else
+      if [[ -e $gDataFile ]];
+        then
+          cp $gDataFile /tmp/framebuffer.dat
+      fi
+  fi
+
+  let i=0
+  let index=0
+  let dwords=(gDataBytes/2)
+  local asci=$(cat $gDataFile)
+
+  while [[ index -lt dwords ]]
+  do
+    gDWords[index++]=${asci:i:4}
+    let i+=4
+  done
+}
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _showData()
+{
+  local offset=$fileOffset
+
+  if [[ $# -eq 0 ]];
+    then
+#     if [[ $action == 'show' ]];
+#       then
+#         printf "Source file: $TARGET_FILE\n"
+#         _getDWords
+#       else
+          if [[ -e $gDataFile ]];
+            then
+              printf "Source file: $gDataFile\n"
+              _getDWords 1
+            else
+#             cp /tmp/framebuffer.dat $gDataFile
+              printf "Source file: $TARGET_FILE\n"
+              _getDWords
+          fi
+#     fi
+  fi
+
+  echo "--------------------------------------------------------------------------"
+  printf "%08x: ${COLOR_BLACK}${gDWords[0]} ${gDWords[1]}${COLOR_END} ${gDWords[2]} " $offset
+  printf "${gDWords[3]} ${COLOR_RED}${gDWords[4]} ${gDWords[5]}${COLOR_END} ${COLOR_BLUE}${gDWords[6]} ${gDWords[7]}${COLOR_END} ("
+
+  local stolenMemory=$(_hexToMegaByte "${gDWords[4]}${gDWords[5]}")
+  local framebufferMemory=$(_hexToMegaByte "${gDWords[6]}${gDWords[7]}")
+
+  printf "${COLOR_RED}%d MB${COLOR_END} BIOS-allocated memory, ${COLOR_BLUE}%d MB${COLOR_END} frame buffer memory)\n" $stolenMemory $framebufferMemory
   #
   # Is this AppleIntelFramebuffeAzul?
   #
   if [[ "$TARGET_FILE" =~ "AppleIntelFramebufferAzul" ]];
     then
-      printf "${data[10]} \e[32m${data[11]} ${data[12]}\e[0m \e[1;35m${data[13]} ${data[14]}\e[0m "
-      printf "\e[36m${data[15]} ${data[16]}\e[0m \e[0;35m${data[17]} ${data[18]}\e[0m ("
+      #
+      # 20 is the index (offset) to the first port (dword) and 255 is used to check for unused ports.
+      #
+      _initPortData 20 255
 
-      local cursorBytes=$(_hexToMegaByte "${data[11]}${data[12]}")
-      local vram=$(_hexToMegaByte "${data[13]}${data[14]}")
-      local backlightFrequency=$(_reverseBytes "${data[15]}${data[16]}")
-      local backlightMax=$(_reverseBytes "${data[17]}${data[18]}")
+      let offset+=16
+      printf "%08x: ${COLOR_GREEN}${gDWords[8]} ${gDWords[9]}${COLOR_END} ${COLOR_MAGENTA}${gDWords[10]} ${gDWords[11]}${COLOR_END} " $offset
+      printf "${COLOR_CYAN}${gDWords[12]} ${gDWords[13]}${COLOR_END} ${COLOR_PURPLE}${gDWords[14]} ${gDWords[15]}${COLOR_END} ("
 
-      printf "\e[32m%s MB\e[0m cursor bytes, \e[1;35m%d MB\e[0m VRAM, backlight frequency " $cursorBytes $vram
-      printf "\e[36m%d Hz\e[0m, \e[0;35m%d\e[0m Max backlight)\n"  $backlightFrequency $backlightMax
-      printf "${data[20]} ${data[21]} ${data[22]} ${data[23]} ${data[24]} "
-      printf "\e[1;34m${data[25]:0:2}\e[0m${data[25]:2:2} ${data[26]} \e[31m${data[27]} ${data[28]}\e[0m ("
+      local cursorBytes=$(_hexToMegaByte "${gDWords[8]}${gDWords[9]}")
+      local vram=$(_hexToMegaByte "${gDWords[10]}${gDWords[11]}")
+      local backlightFrequency=$(_reverseBytes "${gDWords[12]}${gDWords[13]}")
+      local backlightMax=$(_reverseBytes "${gDWords[14]}${gDWords[15]}")
 
-      local portNumber=$(_hexToPortNumber "0x${data[25]}" 0xff)
-      local portName=$(_hexToPortName "0x${data[27]}${data[28]}")
+      printf "${COLOR_GREEN}%s MB${COLOR_END} cursor bytes, ${COLOR_MAGENTA}%d MB${COLOR_END} VRAM, BCL " $cursorBytes $vram
+      printf "freq. ${COLOR_CYAN}%d${COLOR_END} Hz, max. BCL PWM ${COLOR_PURPLE}%d${COLOR_END} Hz)\n" $backlightFrequency $backlightMax
 
-      printf "port \e[1;34m$portNumber\e[0m, $portName connector)\n"
-      printf "${data[30]} ${data[31]} ${data[32]} \e[1;34m${data[33]:0:2}\e[0m"
-      printf "${data[33]:2:2} ${data[34]}\e[31m ${data[35]} ${data[36]}\e[0m ${data[37]} ${data[38]} ("
+      let offset+=16
+      printf "%08x: ${gDWords[16]} ${gDWords[17]} ${gDWords[18]} ${gDWords[19]} " $offset
+      printf "${COLOR_BLUE}${gDWords[20]:0:2}${COLOR_END}${gDWords[20]:2:2} ${gDWords[21]} ${COLOR_ORANGE}${gDWords[22]} "
+      printf "${gDWords[23]}${COLOR_END} (port ${gPortNumbers[0]}, ${gConnectorNames[0]} connector)\n"
 
-      local portNumber=$(_hexToPortNumber "0x${data[33]}" 0xff)
-      local portName=$(_hexToPortName "0x${data[35]}${data[36]}")
+      let offset+=16
+      printf "%08x: ${gDWords[24]} ${gDWords[25]} ${COLOR_BLUE}${gDWords[26]:0:2}${COLOR_END}" $offset
+      printf "${gDWords[26]:2:2} ${gDWords[27]} ${COLOR_ORANGE}${gDWords[28]} ${gDWords[29]}${COLOR_END} ${gDWords[30]} ${gDWords[31]} ("
+      printf "port ${gPortNumbers[1]}, ${gConnectorNames[1]} connector)\n"
 
-      printf "port \e[1;34m$portNumber\e[0m, $portName connector)\n"
-      printf "${data[40]} \e[1;34m${data[41]:0:2}\e[0m${data[41]:2:2} ${data[42]} "
-      printf "\e[31m${data[43]} ${data[44]}\e[0m ${data[45]} ${data[46]} "
-      printf "\e[1;34m${data[47]:0:2}\e[0m${data[47]:2:2} ${data[48]} ("
+      let offset+=16
+      printf "%08x: ${COLOR_BLUE}${gDWords[32]:0:2}${COLOR_END}${gDWords[32]:2:2} ${gDWords[33]} " $offset
+      printf "${COLOR_ORANGE}${gDWords[34]} ${gDWords[35]}${COLOR_END} ${gDWords[36]} ${gDWords[37]} ${COLOR_BLUE}${gDWords[38]:0:2}${COLOR_END}"
+      printf "${gDWords[38]:2:2} ${gDWords[39]} (port ${gPortNumbers[2]}, ${gConnectorNames[2]} connector / port ${gPortNumbers[3]})\n"
 
-      local portNumber=$(_hexToPortNumber "0x${data[41]}" 0xff)
-      local portNumber2=$(_hexToPortNumber "0x${data[47]}" 0xff)
-      local portName=$(_hexToPortName "0x${data[43]}${data[44]}")
+      let offset+=16
+      printf "%08x: ${COLOR_ORANGE}${gDWords[40]} ${gDWords[41]}${COLOR_END} ${gDWords[42]} ${gDWords[43]} " $offset
+      printf "${COLOR_GREY}${gDWords[44]} ${gDWords[45]}${COLOR_END} ${gDWords[46]} ${gDWords[47]} (${gConnectorNames[3]} connector)\n"
 
-      printf "port \e[1;34m$portNumber\e[0m, $portName connector / port \e[1;34m$portNumber2\e[0m)\n"
-      printf "${data[50]} \e[31m${data[51]} ${data[52]}\e[0m ${data[53]} ${data[54]} "
-      printf "\e[4;33m${data[55]} ${data[56]}\e[0m ${data[57]} ${data[58]} ("
-
-      local portName=$(_hexToPortName "0x${data[51]}${data[52]}")
-
-      printf "$portName connector)\n"
-      printf "${data[60]} ${data[61]} ${data[62]} ${data[63]} ${data[64]} ${data[65]} ${data[66]} ${data[67]} ${data[68]}\n\n"
+      let offset+=16
+      printf "%08x: ${gDWords[48]} ${gDWords[49]} ${gDWords[50]} ${gDWords[51]} ${gDWords[52]} ${gDWords[53]} ${gDWords[54]} ${gDWords[55]}\n\n" $offset
     else
       #
       # No. AppleIntelFramebuffeCapri
       #
-      printf "${data[10]} \e[1;35m${data[11]} ${data[12]}\e[0m \e[1;36m${data[13]} ${data[14]}\e[0m "
-      printf "\e[35m${data[15]} ${data[16]}\e[0m ${data[17]} ${data[18]} ("
+      # 24 is the index (offset) to the first port (dword) and 0 is used to check for unused ports.
+      #
+      _initPortData 24 0
 
-      local vram=$(_hexToMegaByte "${data[11]}${data[12]}")
-      local backlightFrequency=$(_reverseBytes "${data[13]}${data[14]}")
-      local backlightMax=$(_reverseBytes "${data[15]}${data[16]}")
+      let offset+=16
+      printf "%08x: ${COLOR_MAGENTA}${gDWords[8]} ${gDWords[9]}${COLOR_END} ${COLOR_CYAN}${gDWords[10]} ${gDWords[11]}"  $offset
+      printf "${COLOR_END} ${COLOR_PURPLE}${gDWords[12]} ${gDWords[13]}${COLOR_END} ${gDWords[14]} ${gDWords[15]} ("
 
-      printf "\e[1;35m%d MB\e[0m VRAM, \e[1;36m%d Hz\e[0m backlight frequency, \e[0;35m%d\e[0m Max backlight)\n" $vram $backlightFrequency $backlightMax
-      printf "${data[20]} ${data[21]} ${data[22]} ${data[23]} ${data[24]} ${data[25]} ${data[26]} ${data[27]} ${data[28]}\n"
-      printf "${data[30]} \e[1;34m${data[31]:0:2}\e[0m${data[31]:2:2} ${data[32]} \e[31m${data[33]} "
-      printf "${data[34]}\e[0m ${data[35]} ${data[36]} \e[1;34m${data[37]:0:2}\e[0m${data[37]:2:2} ${data[38]} ("
+      local vram=$(_hexToMegaByte "${gDWords[8]}${gDWords[9]}")
+      local backlightFrequency=$(_reverseBytes "${gDWords[10]}${gDWords[11]}")
+      local backlightMax=$(_reverseBytes "${gDWords[12]}${gDWords[13]}")
+      printf "${COLOR_MAGENTA}%d MB${COLOR_END} VRAM, ${COLOR_CYAN}%d Hz${COLOR_END} " $vram $backlightFrequency
+      printf "backlight frequency, ${COLOR_PURPLE}%d${COLOR_END} Max backlight)\n" $backlightMax
 
-      local portNumber=$(_hexToPortNumber "0x${data[31]}" 0)
-      local portName=$(_hexToPortName "0x${data[33]}${data[34]}")
-      local portNumber2=$(_hexToPortNumber "0x${data[37]}" 0)
+      let offset+=16
+      printf "%08x: ${gDWords[16]} ${gDWords[17]} ${gDWords[18]} ${gDWords[19]} " $offset
+      printf "${gDWords[20]} ${gDWords[21]} ${gDWords[22]} ${gDWords[23]}\n"
 
-      printf "port \e[1;34m$portNumber\e[0m, $portName connector / port \e[1;34m$portNumber2\e[0m, ...)\n"
-      printf "${data[40]} \e[31m${data[41]} ${data[42]}\e[0m ${data[43]} ${data[44]} "
-      printf "\e[1;34m${data[45]:0:2}\e[0m${data[45]:2:2} ${data[46]} \e[31m${data[47]} ${data[48]}\e[0m ("
+      let offset+=16
+      printf "%08x: ${COLOR_BLUE}${gDWords[24]:0:2}${COLOR_END}${gDWords[24]:2:2} " $offset
+      printf "${gDWords[25]} ${COLOR_ORANGE}${gDWords[26]} "
+      printf "${gDWords[27]}${COLOR_END} ${gDWords[28]} ${gDWords[29]} "
+      printf "${COLOR_BLUE}${gDWords[30]:0:2}${COLOR_END}${gDWords[30]:2:2} ${gDWords[31]} ("
+      printf "port ${COLOR_BLUE}${gPortNumbers[0]}${COLOR_END}, ${gConnectorNames[0]} connector / "
+      printf "port ${COLOR_BLUE}${gPortNumbers[1]}${COLOR_END}, ...)\n"
 
-      local portName=$(_hexToPortName "0x${data[41]}${data[42]}")
-      local portNumber=$(_hexToPortNumber "0x${data[45]}" 0)
-      local portName2=$(_hexToPortName "0x${data[47]}${data[48]}")
+      let offset+=16
+      printf "%08x: ${COLOR_ORANGE}${gDWords[32]} ${gDWords[33]}${COLOR_END} ${gDWords[34]} ${gDWords[35]} " $offset
+      printf "${COLOR_BLUE}${gDWords[36]:0:2}${COLOR_END}${gDWords[36]:2:2} "
+      printf "${gDWords[37]} ${COLOR_ORANGE}${gDWords[38]} ${gDWords[39]}${COLOR_END} ("
+      printf "${COLOR_ORANGE}${gConnectorNames[1]}${COLOR_END} connector / port "
+      printf "${COLOR_BLUE}${gPortNumbers[2]}${COLOR_END}, ${COLOR_ORANGE}${gConnectorNames[2]}${COLOR_END} connector)\n"
 
-      printf "\e[31m$portName\e[0m connector / port \e[1;34m$portNumber\e[0m, \e[31m$portName2\e[0m connector)\n"
-      printf "${data[50]} ${data[51]} ${data[52]} \e[1;34m${data[53]:0:2}\e[0m${data[53]:2:2} ${data[54]} "
-      printf "\e[31m${data[55]} ${data[56]}\e[0m ${data[57]} ${data[58]} ("
+      let offset+=16
+      printf "%08x: ${gDWords[40]} ${gDWords[41]} ${COLOR_BLUE}${gDWords[42]:0:2}" $offset
+      printf "${COLOR_END}${gDWords[42]:2:2} ${gDWords[43]} "
+      printf "${COLOR_ORANGE}${gDWords[44]} ${gDWords[45]}${COLOR_END} ${gDWords[46]} ${gDWords[47]} ("
+      printf "port ${COLOR_BLUE}${gPortNumbers[3]}${COLOR_END}, ${COLOR_ORANGE}${gConnectorNames[3]}${COLOR_END} connector)\n"
 
-      local portNumber=$(_hexToPortNumber "0x${data[53]}" 0)
-      local portName=$(_hexToPortName "0x${data[55]}${data[56]}")
+      let s=47
 
-      printf "port \e[1;34m$portNumber\e[0m, \e[31m$portName\e[0m connector)\n"
-      printf "${data[60]} ${data[61]} ${data[62]} ${data[63]} ${data[64]} ${data[65]} ${data[66]} ${data[67]} ${data[68]}\n"
-      printf "${data[70]} ${data[71]} ${data[72]} ${data[73]} ${data[74]} ${data[75]} ${data[76]} ${data[77]} ${data[78]}\n"
-      printf "${data[80]} ${data[81]} ${data[82]} ${data[83]} ${data[84]} ${data[85]} ${data[86]} ${data[87]} ${data[88]}\n"
+      for i in {1..6}
+      do
+        let offset+=16
+        printf "%08x: " $offset
 
-      printf "${data[90]} ${data[91]} ${data[92]} ${data[93]} ${data[94]} ${data[95]} ${data[96]} ${data[97]} ${data[98]}\n"
-      printf "${data[100]} ${data[101]} ${data[102]} ${data[103]} ${data[104]} ${data[105]} ${data[106]} ${data[107]} ${data[108]}\n"
-      printf "${data[110]} ${data[111]} ${data[112]} ${data[113]} ${data[114]} ${data[115]} ${data[116]} ${data[117]} ${data[118]}\n"
-      printf "${data[120]} ${data[121]} ${data[122]} ${data[123]} ${data[124]}\n\n"
+        for x in {1..8}
+        do
+          printf "${gDWords[s+x]} "
+        done
+
+        let s+=8
+        printf "\n"
+      done
+
+      let offset+=16
+      printf "%08x: ${gDWords[++s]} ${gDWords[++s]} ${gDWords[++s]} ${gDWords[++s]}\n\n" $offset
   fi
-}
 
+  _showMenu
+}
 
 #
 #--------------------------------------------------------------------------------
@@ -1685,23 +2709,186 @@ function _showColorizedData()
 function _readPlatformID()
 {
   #
-  # Check script name to select target property.
+  # Get AAPL,XXX-platform-id from ioreg.
   #
-  if [[ "$gScriptName" =~ "SNB" ]];
-    then
-      local targetProperty="AAPL,snb-platform-id"
-    else
-      local targetProperty="AAPL,ig-platform-id"
-  fi
-
-  _DEBUG_PRINT $targetProperty
-
-  local result=$(/usr/sbin/ioreg -p IODeviceTree -c IOPCIDevice -k $targetProperty | grep $targetProperty | awk '{print $5}' | sed -e 's/[<>]//g')
-
+  local result=$(/usr/sbin/ioreg -p IODeviceTree -c IOPCIDevice -k $gTargetProperty | grep $gTargetProperty | awk '{print $5}' | sed -e 's/[<>]//g')
+  #
+  # Property found?
+  #
   if [[ $result ]];
     then
-      gCurrentPlatformID=$(_reverseBytes $result)
+      #
+      # Yes. Use it.
+      #
+      gPlatformID=$(_reverseBytes $result)
+#   else
+      #
+      # No. Use override value, remove this when you're done testing!
+      #
+#     gPlatformID=0x0d220003
   fi
+}
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _checkForDataFile()
+{
+  local target files filename index=0
+
+  case $gScriptType in
+    SNB  ) target='Snb' ;;
+    CAPRI) target='Capri' ;;
+    AZUL ) target='Azul' ;;
+  esac
+
+  local files=(`ls $target-0x*.dat 2> /dev/null`)
+
+  if [[ ${#files[@]} -gt 0 ]];
+    then
+      if [[ ${#files[@]} -gt 1 ]];
+        then
+          printf "The following data files are available:\n\n"
+
+          for filename in "${files[@]}"
+          do
+            let index++
+            printf "[ $index ] $filename\n"
+          done
+
+          let index++
+          printf "[ $index ] Show list with platformIDs\n"
+
+          _validateMenuAction "Please choose a data file" $index 0 _checkForDataFile
+
+          case "$choice" in
+            c|C         ) echo 'Done'
+                          exit
+                          ;;
+
+            [[:digit:]]*) if (( choice > 0 && choice < index ));
+                            then
+                              filename="${files[$choice-1]}"
+                              #
+                              # Strip 'Snb-', 'Capri-' or 'Azul-' and '.dat'.
+                              #
+                              gPlatformID=$(echo $filename | sed -e "s/$target-//" -e "s/\.dat//")
+                            else
+                              if [[ choice -ne index ]];
+                                then
+                                  #
+                                  # Invalid menu action, retrying.
+                                  #
+                                  _checkForDataFile
+#                               else
+#                                 _showPlatformIDs 1
+                              fi
+                          fi
+                          ;;
+          esac
+        else
+          #
+          # Single data file found.
+          #
+          filename="${files[0]}"
+
+          printf "The following data file was found:\n\n"
+          printf "[ 1 ] $filename\n\n"
+
+          read -p "Do you want to use it (y/n) ? " choice
+            case "$choice" in
+              1|y|Y) #
+                     # Strip 'Snb-', 'Capri-' or 'Azul-' and '.dat'.
+                     #
+                     gPlatformID=$(echo $filename | sed -e "s/$target-//" -e "s/\.dat//")
+                     _clearLines 5
+                     ;;
+
+              n|N  ) _clearLines 5
+                     ;;
+
+              *    ) _invalidMenuAction 1
+                     _checkForDataFile
+                     ;;
+          esac
+      fi
+#   else
+#     _showPlatformIDs 1
+  fi
+}
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _setScriptType()
+{
+  let UNKNOWN=0
+  let SNB=1
+  let CAPRI=2
+  let AZUL=3
+  #
+  # Init script type (global variable).
+  #
+  case "$gScriptName"  in
+    *'Azul'* ) gScriptType=AZUL ;;
+    *'Capri'*) gScriptType=CAPRI ;;
+    *'Sandy'*) gScriptType=SNB ;;
+    *        ) gScriptType=UNKNOWN ;;
+  esac
+  #
+  # Check script type to select the target platform-id property.
+  #
+  if [[ $gScriptType -eq SNB ]];
+    then
+      gTargetProperty="AAPL,snb-platform-id"
+    else
+      gTargetProperty="AAPL,ig-platform-id"
+  fi
+}
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _setDataFilename()
+{
+  #
+  # Set filename (global variable).
+  #
+  case $gScriptType in
+    SNB  ) gDataFile="Snb-${gPlatformID}.dat" ;;
+    CAPRI) gDataFile="Capri-${gPlatformID}.dat" ;;
+    AZUL ) gDataFile="Azul-${gPlatformID}.dat" ;;
+    *    ) gDataFile="Unknown-${gPlatformID}.dat" ;;
+  esac
+}
+
+#
+#--------------------------------------------------------------------------------
+# Modified copy of function in freqVectorsEdit.sh
+#
+
+function _readPreferences()
+{
+  #
+  # Is PlistBuddy installed?
+  #
+  if [ ! -f /usr/libexec/PlistBuddy ];
+    then
+      #
+      # No. Download it.
+      #
+      printf 'PlistBuddy not found ... Downloading PlistBuddy '
+      _showDelayedDots "\n"
+      curl https://raw.github.com/Piker-Alpha/freqVectorsEdit.sh/master/Tools/PlistBuddy -o /usr/libexec/PlistBuddy --create-dirs
+      chmod +x /usr/libexec/PlistBuddy
+      printf 'Done.'
+  fi
+  #
+  # The actual pref read bits should be added here (still unused).
+  #
 }
 
 #
@@ -1712,14 +2899,36 @@ function _main()
 {
   clear
   printf "\n$gScriptName v$gScriptVersion Copyright (c) 2012-$(date "+%Y") by Pike R. Alpha\n"
-  echo  "--------------------------------------------------------------------------"
+  echo '--------------------------------------------------------------------------'
+  #
+  # Do we want colored data?
+  #
+  if [[ $gExtraStyling -ne 1 ]];
+    then
+      #
+      # Nope.
+      #
+      _unsetColors
+  fi
+
+  _readPreferences
+  #
+  # Is there a temporarily data file?
+  #
+  if [[ -e /tmp/framebuffer.dat ]];
+    then
+      #
+      # Yes. Remove it (fresh start).
+      #
+      rm /tmp/framebuffer.dat
+  fi
 
   if [[ $(_fileExists "$TARGET_FILE") -eq 1 ]];
     then
       #
-      # Check script name add change target filename.
+      # Check script name and change target (kext) filename.
       #
-      if [[ "$gScriptName" =~ "AppleIntelFramebufferCapri.sh" ]];
+      if [[ $gScriptType -eq CAPRI ]];
         then
           TARGET_FILE=$(echo "$TARGET_FILE" | sed -e 's/Azul/Capri/g')
       fi
@@ -1729,6 +2938,7 @@ function _main()
       if [[ "$TARGET_FILE" =~ "AppleIntelFramebufferCapri" ]];
         then
           let gDataBytes=($gBytesPerRow*125)/10
+          let gRowsInTable=13
         else
           #
           # Check OS version and re-initialise gRowsInTable.
@@ -1746,8 +2956,6 @@ function _main()
           #
           let gDataBytes=($gBytesPerRow*$gRowsInTable)
       fi
-
-      echo "Reading file: $TARGET_FILE\n"
       #
       # Are we asked to dump the factory data?
       #
@@ -1778,14 +2986,7 @@ function _main()
         restore|undo ) _initFactoryPlatformInfo
                        _patchFile "restore"
                        ;;
-        show|*       ) echo "--------------------------------------------------------------------------\n"
-
-                       if [[ $gExtraStyling -eq 1 ]];
-                         then
-                           _showColorizedData
-                         else
-                           _showPlainTextData
-                       fi
+        show|*       ) _showData
                        ;;
       esac
     else
@@ -1793,62 +2994,87 @@ function _main()
   fi
 }
 
+#
+#--------------------------------------------------------------------------------
+#
+
+function _exitWithUsageInfo()
+{
+  echo "Usage: [sudo] $0 AAPL,ig-platform-id [dump|show|patch|replace|undo|restore] [TARGET_FILE]"
+  exit 1
+}
 
 #==================================== START =====================================
 
 #
-# Check number of arguments.
+# Set script type from script name.
 #
-if [ $gNumberOfArguments -eq 0 ];
-  then
-    _readPlatformID
+_setScriptType
+#
+# Select action based on (number of) arguments.
+#
+case "$gNumberOfArguments" in
+  0) _readPlatformID
+     action=""
+     ;;
 
-    if [[ $gCurrentPlatformID -eq 0 ]];
-      then
-        echo "Usage: sudo $0 AAPL,ig-platform-id [dump|show|patch|replace|undo|restore] [TARGET_FILE]"
-        exit 1
-      else
-        id=$gCurrentPlatformID
-        action="show"
-        _main
-    fi
-  else
-    id=$(_toLowerCase $1)
+  1) if [[ $(_toLowerCase $1) == '-h' ]];
+       then
+         _exitWithUsageInfo
+     fi
 
-    if [ "$id" == "dump" ];
-      then
-        action=$id
+     if [[ $(_toLowerCase $1) == 'dump' ]];
+       then
+         action='dump'
+       else
+         action='show'
 
-        if [ $gNumberOfArguments -eq 2 ];
-          then
-            _checkFilename "$2"
-        fi
-      else
-        action=$(_toLowerCase $2)
+         if [[ $(_toLowerCase $1) == 'show' ]];
+           then
+             _readPlatformID
+           else
+             gPlatformID=$(_toLowerCase $1)
+         fi
+     fi
+     ;;
 
-        if [ $gNumberOfArguments -eq 3 ];
-          then
-            _checkFilename "$3"
-        fi
-    fi
+  2) if [[ $(_toLowerCase $1) == 'dump' ]];
+       then
+         action='dump'
+         _checkFilename "$2"
+     fi
 
-    if [[ $action == "patch" || $action == "replace" ]];
-      then
-        #
-        # Are we root?
-        #
-        if [[ $(id -u) -ne 0 ]];
-          then
-            #
-            # No, ask for password and run script as root (with elevated privileges).
-            #
-            clear
-            echo "This script ${STYLE_UNDERLINED}must${STYLE_RESET} be run as root!" 1>&2
-            sudo "$0" "$@"
-          else
-            _main
-        fi
-      else
-        _main
-    fi
-fi
+     if [[ $(_toLowerCase $2) == 'show' ]];
+       then
+         action='show'
+         gPlatformID=$(_toLowerCase $1)
+     fi
+     ;;
+
+  3) action=$(_toLowerCase $2)
+
+     if [[ $action == 'patch' || action == 'replace' || $action == 'undo' || action == 'restore' ]];
+       then
+         _checkFilename "$3"
+         #
+         # Are we root?
+         #
+         if [[ $(gPlatformID -u) -ne 0 ]];
+           then
+             #
+             # No, ask for password and run script as root (with elevated privileges).
+             #
+             clear
+             echo "This script ${STYLE_UNDERLINED}must${STYLE_RESET} be run as root!" 1>&2
+             sudo "$0" "$@"
+           else
+             gPlatformID=$(_toLowerCase $1)
+         fi
+     fi
+     ;;
+
+  *) _exitWithUsageInfo
+     ;;
+esac
+
+_main
