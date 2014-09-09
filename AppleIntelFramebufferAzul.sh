@@ -1298,9 +1298,6 @@ function _showPlatformIDs()
   case "$selection" in
     c|C          ) if [[ $1 -ne 0 ]];
                      then
-#                      _PRINT_ERROR "Invalid selection!\n       Retrying "
-#                      _showDelayedDots
-#                      _clearLines $index+6
                        _invalidMenuAction $index
                        _showPlatformIDs $1
                      else
@@ -1311,9 +1308,6 @@ function _showPlatformIDs()
 
     e|E          ) if [[ $1 -eq 0 ]];
                      then
-#                      _PRINT_ERROR "Invalid selection!\n       Retrying "
-#                      _showDelayedDots
-#                      _clearLines $index+6
                        _invalidMenuAction $index+6
                        _showPlatformIDs $1
                      else
@@ -1325,10 +1319,7 @@ function _showPlatformIDs()
                    fi
                    ;;
 
-    *[[:alpha:]]*) #_PRINT_ERROR "Invalid selection!\n       Retrying "
-#                  _showDelayedDots
-#                  _clearLines $index+6
-                   _invalidMenuAction $index
+    *[[:alpha:]]*) _invalidMenuAction $index
                    _showPlatformIDs $1
                    ;;
 
@@ -1336,25 +1327,13 @@ function _showPlatformIDs()
                      then
                        gPlatformID="${data[$selection-1]}"
                        _clearLines $index+4
-
-#                      if [[ $1 -eq 1 ]];
-#                        then
-#                          _getOffset
-#                      fi
-
                      else
-#                      _PRINT_ERROR "Invalid selection!\n       Retrying "
-#                      _showDelayedDots
-#                      _clearLines $index+6
                        _invalidMenuAction $index
                        _showPlatformIDs $1
                    fi
                    ;;
 
-    *            ) # _PRINT_ERROR "Invalid selection!\n       Retrying "
-#                  _showDelayedDots
-#                  _clearLines $index+6
-                   _invalidMenuAction $index
+    *            ) _invalidMenuAction $index
                    ;;
   esac
 }
@@ -1782,7 +1761,6 @@ function _getPortName()
 
 function _clearLines()
 {
-  # local lines=0
   let lines=$1
 
   if [[ ! lines ]];
@@ -1944,42 +1922,6 @@ function _doAction()
              gDWords[5]=${value:4:2}${value:2:2}
              _showModifiedData
          fi
-
-#        echo ''
-#        let items="${#values[@]}"
-#        read -p "Please choose the amount of memory (Cancel/1-$items) ? " choice
-#        case $choice in
-#          c|C          ) _clearLines $items+4
-#                         _showMenu
-#                         ;;
-#
-#          *[[:alpha:]]*) _PRINT_ERROR "Invalid choice!\n        Retrying "
-#                         _showDelayedDots
-#                         _clearLines $items+6
-#                         _doAction $1
-#                         ;;
-#
-#          [[:digit:]]* ) if [[ $choice -eq 0 || $choice -gt $items || "${values[$choice-1]}" -eq $stolenMemory ]];
-#                           then
-#                             _PRINT_ERROR "Invalid choice!\n       Retrying "
-#                             _showDelayedDots
-#                             _clearLines $items+6
-#                             _doAction $1
-#                         fi
-#
-#                         local value=$(_megaBytesToHex "${values[$choice-1]}")
-#                         gDWords[4]=${value:8:2}${value:6:2}
-#                         gDWords[5]=${value:4:2}${value:2:2}
-#                         _clearLines $items+6+$gRowsInTable
-#                         _showData 1
-#                         ;;
-#
-#          *            ) _PRINT_ERROR "Invalid choice!\n        Retrying "
-#                         _showDelayedDots
-#                         _clearLines $items+6
-#                         _doAction $1
-#                         ;;
-#        esac
          ;;
 
     3  ) printf "Change frame buffer memory to:\n\n"
@@ -2013,29 +1955,6 @@ function _doAction()
              gDWords[7]=${value:4:4}
              _showModifiedData
          fi
-
-#        echo ''
-#        let items=$index
-#
-#        read -p "Please choose the amount of memory you want (Cancel/1-$items) ? " choice
-#        case $choice in
-#          c|C  ) _clearLines $items+4
-#                 _showMenu
-#                 ;;
-#
-#          [1-4]) value=${fbMemoryValues[$choice-1]}
-#                 gDWords[6]=${value:0:4}
-#                 gDWords[7]=${value:4:4}
-#                 _clearLines $items+6+$gRowsInTable
-#                 _showData 1
-#                 ;;
-#
-#          *    ) _PRINT_ERROR "Invalid choice!\n       Retrying "
-#                 _showDelayedDots
-#                 _clearLines $items+6
-#                 _doAction $1
-#                 ;;
-#        esac
          ;;
 
     4  ) printf "Change cursor bytes to:\n\n"
@@ -2081,29 +2000,6 @@ function _doAction()
              gDWords[47]=${words[3]}
              _showModifiedData
          fi
-
-#        echo ''
-#        let items=$index
-
-#        read -p "Please choose the amount of cursor bytes you want (Cancel/1-$items) ? " choice
-#        case $choice in
-#          c|C  ) _clearLines $items+4
-#                 _showMenu
-#                 ;;
-#
-#          [1-7]) value=${cursorBytes[$choice-1]}
-#                 gDWords[8]=${value:0:4}
-#                 gDWords[9]=${value:4:4}
-#                 _clearLines $items+6+$gRowsInTable
-#                 _showData 1
-#                 ;;
-#
-#          *    ) _PRINT_ERROR "Invalid choice!\n       Retrying "
-#                 _showDelayedDots
-#                 _clearLines $items+6
-#                 _doAction $1
-#                 ;;
-#        esac
          ;;
 
     5  ) printf "Change Video Random Access Memory to:\n\n"
@@ -2147,38 +2043,6 @@ function _doAction()
               gDWords[vramIndex+1]=${value:4:4}
              _showModifiedData
          fi
-
-#        echo ''
-#        let items=$index
-#
-#        read -p "Please choose the amount of memory you want (Cancel/1-$items) ? " choice
-#        case $choice in
-#          c|C  ) _clearLines $items+4
-#                 _showMenu
-#                 ;;
-#
-#          [1-6]) value=${vramValues[$choice-1]}
-#
-#                 if [[ $value == "${gDWords[10]}${gDWords[11]}" ]];
-#                   then
-#                     _PRINT_ERROR "Invalid choice!\n       Retrying "
-#                     _showDelayedDots
-#                     _clearLines $items+6
-#                     _doAction $1
-#                   else
-#                     gDWords[10]=${value:0:4}
-#                     gDWords[11]=${value:4:4}
-#                     _clearLines $items+6+$gRowsInTable
-#                     _showData 1
-#                 fi
-#                 ;;
-#
-#          *    ) _PRINT_ERROR "Invalid choice!\n       Retrying "
-#                 _showDelayedDots
-#                 _clearLines $items+6
-#                 _doAction $1
-#                 ;;
-#        esac
          ;;
 
     6  ) printf "Change backlight frequency to:\n\n"
@@ -2227,32 +2091,6 @@ function _doAction()
              gDWords[bclIndex+3]=${gDWords[bclIndex+1]}
              _showModifiedData
          fi
-
-#        echo ''
-#        read -p "Please choose a connector type (Cancel/1-$index) ? " choice
-#        case $choice in
-#          c|C  ) _clearLines $index+4
-#                 _showMenu
-#                 ;;
-#
-#          [1-5]) frequency=${bclFrequency[$choice-1]}
-#                 gDWords[12]=${frequency:0:4}
-#                 gDWords[13]=${frequency:4:4}
-                  #
-                  # Update the curve value (Apple is using a synchronised value).
-                  #
-#                 gDWords[14]=${gDWords[12]}
-#                 gDWords[15]=${gDWords[13]}
-#                 _clearLines $index+6+$gRowsInTable
-#                 _showData 1
-#                 ;;
-#
-#          *    ) _PRINT_ERROR "Invalid choice!\n       Retrying "
-#                 _showDelayedDots
-#                 _clearLines $index+6
-#                 _doAction $1
-#                 ;;
-#        esac
          ;;
 
     7  ) printf "The backlight frequency and maximum backlight PWM (Pulse Width Modulation)\n"
@@ -2277,26 +2115,6 @@ function _doAction()
            then
              local portData=(${gPortData[choice-1]})
          fi
-
-#        echo ''
-#        let items=$index
-#
-#        read -p "Please choose the connector (Cancel/1-$items) ? " choice
-#        case $choice in
-#          c|C  ) _clearLines $items+4
-#                 _showMenu
-#                 ;;
-#
-#          [1-4]) _clearLines $items+4
-#                 local portData=(${gPortData[$choice-1]})
-#                 ;;
-#
-#          *    ) _PRINT_ERROR "Invalid choice!\n       Retrying "
-#                 _showDelayedDots
-#                 _clearLines $items+6
-#                 _doAction $1
-#                 ;;
-#        esac
 
          printf "Change connector type for port ${gPortNumbers[choice-1]} to:\n\n"
 
@@ -2327,24 +2145,6 @@ function _doAction()
              gDWords[connectorIndex+1]=${connector:4:4}
              _showModifiedData
          fi
-
-#        echo ''
-#        let items="${#connectorValues[@]}"
-#
-#        read -p "Please choose a connector type (Cancel/1-$items) ? " choice
-#        case $choice in
-#          c|C  ) _clearLines $items+4
-#                 _showMenu
-#                 ;;
-#
-#          [1-6]) _clearLines $items+6+$gRowsInTable
-#                 local connector=${connectorValues[$choice-1]}
-#                 let connectorIndex=${portData[2]}
-#                 gDWords[connectorIndex]=${connector:0:4}
-#                 gDWords[connectorIndex+1]=${connector:4:4}
-#                 _showData 1
-#                 ;;
-#        esac
          ;;
 
     9  ) printf "Change number of framebuffers to:\n\n"
@@ -2538,7 +2338,6 @@ function _getDWords()
       #
       xxd -s $fileOffset -l $gDataBytes -ps "$TARGET_FILE" | tr -d '\n' > /tmp/framebuffer.dat
       cp /tmp/framebuffer.dat $gDataFile
-#     printf "Created: $gDataFile\n"
     else
       if [[ -e $gDataFile ]];
         then
@@ -2568,21 +2367,14 @@ function _showData()
 
   if [[ $# -eq 0 ]];
     then
-#     if [[ $action == 'show' ]];
-#       then
-#         printf "Source file: $TARGET_FILE\n"
-#         _getDWords
-#       else
-          if [[ -e $gDataFile ]];
-            then
-              printf "Source file: $gDataFile\n"
-              _getDWords 1
-            else
-#             cp /tmp/framebuffer.dat $gDataFile
-              printf "Source file: $TARGET_FILE\n"
-              _getDWords
-          fi
-#     fi
+      if [[ -e $gDataFile ]];
+        then
+          printf "Source file: $gDataFile\n"
+          _getDWords 1
+        else
+          printf "Source file: $TARGET_FILE\n"
+          _getDWords
+      fi
   fi
 
   echo "--------------------------------------------------------------------------"
@@ -2721,11 +2513,6 @@ function _readPlatformID()
       # Yes. Use it.
       #
       gPlatformID=$(_reverseBytes $result)
-#   else
-      #
-      # No. Use override value, remove this when you're done testing!
-      #
-#     gPlatformID=0x0d220003
   fi
 }
 
@@ -2781,8 +2568,6 @@ function _checkForDataFile()
                                   # Invalid menu action, retrying.
                                   #
                                   _checkForDataFile
-#                               else
-#                                 _showPlatformIDs 1
                               fi
                           fi
                           ;;
@@ -2813,8 +2598,6 @@ function _checkForDataFile()
                      ;;
           esac
       fi
-#   else
-#     _showPlatformIDs 1
   fi
 }
 
