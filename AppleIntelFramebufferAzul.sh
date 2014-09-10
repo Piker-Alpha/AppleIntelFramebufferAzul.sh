@@ -67,6 +67,9 @@
 #			-       fixed a root check error ($gPlatformID instead of $id).
 #			-       fixed a typo in PATCHED_PLATFORM_INFO definition.
 #			-       added a lost 'patch' keyword.
+#			-       variable gDataFileSelected added (set to 1 if a data file is selected).
+#			-       fixed a root user issue/now using gID (like in my other scripts).
+#			-       DEBUG renamed to gDebug (like in my other scripts).
 #
 
 gScriptVersion=2.9
@@ -80,7 +83,12 @@ gScriptName=$(echo $0 | sed -e 's/^\.\///')
 #
 # Setting the debug mode (default off).
 #
-let DEBUG=0
+let gDebug=0
+
+#
+# Get user id
+#
+let gID=$(id -u)
 
 #
 # Number of bytes in a row
@@ -125,6 +133,11 @@ gPlatformIDs=""
 # Default platformID (initialized by _readPlatformAAPL).
 #
 let gPlatformID=0
+
+#
+# Set to 1 in _checkForDataFile if a data file is selected (used in _showData).
+#
+let gDataFileSelected=0
 
 #
 # Change this to whatever full patch you want to use.
@@ -179,7 +192,7 @@ COLOR_END="\e[0m"
 
 function _DEBUG_PRINT()
 {
-  if [[ $DEBUG -eq 1 ]];
+  if [[ $gDebug -eq 1 ]];
     then
       printf "$1"
   fi
@@ -1491,7 +1504,7 @@ function _getOffset()
       fi
     else
       #
-      # gPlatformID is still zero (should never happen but anyway).
+      # gPlatformID is zero (happens if no data file was selected).
       #
       _showPlatformIDs 1
       #
@@ -2408,7 +2421,7 @@ function _showData()
 
   if [[ $# -eq 0 ]];
     then
-      if [[ -e $gDataFile ]];
+      if [[ -e $gDataFile && gDataFileSelected -eq 1 ]];
         then
           printf "Source file: $gDataFile\n"
           _getDWords 1
@@ -2595,8 +2608,12 @@ function _checkForDataFile()
                           exit
                           ;;
 
+            n|N         ) let gDataFileSelected=0
+                          ;;
+
             [[:digit:]]*) if (( choice > 0 && choice < index ));
                             then
+                              let gDataFileSelected=1
                               filename="${files[$choice-1]}"
                               #
                               # Strip 'Snb-', 'Capri-' or 'Azul-' and '.dat'.
@@ -2611,6 +2628,7 @@ function _checkForDataFile()
                                   _checkForDataFile
                               fi
                           fi
+
                           ;;
           esac
         else
@@ -2624,14 +2642,16 @@ function _checkForDataFile()
 
           read -p "Do you want to use it (y/n) ? " choice
             case "$choice" in
-              1|y|Y) #
+              1|y|Y) let gDataFileSelected=1
+                     #
                      # Strip 'Snb-', 'Capri-' or 'Azul-' and '.dat'.
                      #
                      gPlatformID=$(echo $filename | sed -e "s/$target-//" -e "s/\.dat//")
                      _clearLines 5
                      ;;
 
-              n|N  ) _clearLines 5
+              n|N  ) let gDataFileSelected=0
+                     _clearLines 5
                      ;;
 
               *    ) _invalidMenuAction 1
@@ -2832,74 +2852,74 @@ function _exitWithUsageInfo()
 #==================================== START =====================================
 
 #
-# Set script type from script name.
+# Are we root?
 #
-_setScriptType
-#
-# Select action based on (number of) arguments.
-#
-case "$gNumberOfArguments" in
-  0) _readPlatformID
-     action=""
-     ;;
+if [[ gID -ne 0 ]];
+  then
+    #
+    # No, ask for password and run script as root (with elevated privileges).
+    #
+    clear
+    printf "This script ${STYLE_UNDERLINED}must${STYLE_RESET} be run as root!\n" 1>&2
+    sudo "$0" "$@"
+  else
+    #
+    # Set script type from script name.
+    #
+    _setScriptType
+    #
+    # Select action based on (number of) arguments.
+    #
+    case "$gNumberOfArguments" in
+      0) _readPlatformID
+         action=""
+         ;;
 
-  1) if [[ $(_toLowerCase $1) == '-h' ]];
-       then
-         _exitWithUsageInfo
-     fi
-
-     if [[ $(_toLowerCase $1) == 'dump' ]];
-       then
-         action='dump'
-       else
-         action='show'
-
-         if [[ $(_toLowerCase $1) == 'show' ]];
+      1) if [[ $(_toLowerCase $1) == '-h' ]];
            then
-             _readPlatformID
+             _exitWithUsageInfo
+         fi
+
+         if [[ $(_toLowerCase $1) == 'dump' ]];
+           then
+             action='dump'
            else
+             action='show'
+
+             if [[ $(_toLowerCase $1) == 'show' ]];
+               then
+                 _readPlatformID
+               else
+                 gPlatformID=$(_toLowerCase $1)
+             fi
+         fi
+         ;;
+
+      2) if [[ $(_toLowerCase $1) == 'dump' ]];
+           then
+             action='dump'
+             _checkFilename "$2"
+         fi
+
+         if [[ $(_toLowerCase $2) == 'show' ]];
+           then
+             action='show'
              gPlatformID=$(_toLowerCase $1)
          fi
-     fi
-     ;;
+         ;;
 
-  2) if [[ $(_toLowerCase $1) == 'dump' ]];
-       then
-         action='dump'
-         _checkFilename "$2"
-     fi
+      3) action=$(_toLowerCase $2)
 
-     if [[ $(_toLowerCase $2) == 'show' ]];
-       then
-         action='show'
-         gPlatformID=$(_toLowerCase $1)
-     fi
-     ;;
-
-  3) action=$(_toLowerCase $2)
-
-     if [[ $action == 'patch' || action == 'replace' || $action == 'undo' || action == 'restore' ]];
-       then
-         _checkFilename "$3"
-         #
-         # Are we root?
-         #
-         if [[ $(id -u) -ne 0 ]];
+         if [[ $action == 'patch' || action == 'replace' || $action == 'undo' || action == 'restore' ]];
            then
-             #
-             # No, ask for password and run script as root (with elevated privileges).
-             #
-             clear
-             echo "This script ${STYLE_UNDERLINED}must${STYLE_RESET} be run as root!" 1>&2
-             sudo "$0" "$@"
-           else
+             _checkFilename "$3"
              gPlatformID=$(_toLowerCase $1)
          fi
-     fi
-     ;;
+         ;;
 
-  *) _exitWithUsageInfo
-     ;;
-esac
+      *) _exitWithUsageInfo
+         ;;
+    esac
 
-_main
+    _main
+fi
