@@ -63,6 +63,10 @@
 #			-       functions _checkForDataFile, _setDataFilename and _setDataFilename added.
 #			-       improved capri support/fixed pointers to values in gDWords array.
 #			-       changed _initPortData to make it work with only two arguments.
+#			-       renamed connectorTableOffset to gConnectorTableOffset.
+#			-       fixed a root check error ($gPlatformID instead of $id).
+#			-       fixed a typo in PATCHED_PLATFORM_INFO definition.
+#			-       added a lost 'patch' keyword.
 #
 
 gScriptVersion=2.9
@@ -1063,7 +1067,7 @@ function _getConnectorTableOffset()
       #
       # Yes. Get offset to _gPlatformInformationList
       #
-      let connectorTableOffset=$(nm -t d -Ps __DATA __data -arch "x86_64" "$TARGET_FILE" | grep '_gPlatformInformationList' | awk '{ print $3 }')
+      let gConnectorTableOffset=$(nm -t d -Ps __DATA __data -arch "x86_64" "$TARGET_FILE" | grep '_gPlatformInformationList' | awk '{ print $3 }')
     else
       #
       # No. Use backed in NM 'replacment'.
@@ -1142,16 +1146,16 @@ function _getConnectorTableOffset()
                   if [[ $offset -eq $currentAddress ]];
                     then
                       #
-                      # Yes it is. Init connectorTableOffset.
+                      # Yes it is. Init gConnectorTableOffset.
                       #
-                      let connectorTableOffset=$(_reverseBytes ${symbolTableData:($index+16):8})
+                      let gConnectorTableOffset=$(_reverseBytes ${symbolTableData:($index+16):8})
                       #
                       # Convert number of characters to number of bytes.
                       #
                       let index/=2
                       let stringTableOffset=$start+$index
 
-                      _DEBUG_PRINT "Offset $connectorTableOffset to _gPlatformInformationList found @ 0x%08x/$stringTableOffset!\n" $stringTableOffset
+                      _DEBUG_PRINT "Offset $gConnectorTableOffset to _gPlatformInformationList found @ 0x%08x/$stringTableOffset!\n" $stringTableOffset
                       #
                       # Done.
                       #
@@ -1346,11 +1350,11 @@ function _showPlatformIDs()
 
 function _getConnectorTableData()
 {
-  _getConnectorTableOffset
-  _DEBUG_PRINT "connectorTableOffset: $connectorTableOffset\n"
+# _getConnectorTableOffset
+  _DEBUG_PRINT "gConnectorTableOffset: $gConnectorTableOffset\n"
 
-  local platformID=0
-  local let index=$connectorTableOffset
+  local index platformID=0
+  let index=$gConnectorTableOffset
   #
   # Reset variable to prevent duplicated entries.
   #
@@ -1731,7 +1735,7 @@ function _updatePlatformData()
     data[index++]=$dword
   done
 
-  PATCHED_PLATFORM_INFO="0:${data[@]}"
+  PATCHED_PLATFORM_INFO="0: ${data[@]}"
 }
 
 #
@@ -1858,6 +1862,33 @@ function _showModifiedData()
   fi
 
   _showData 1
+}
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _patchPorts
+{
+  local action framebufferCount
+  local portData=($gPortData)
+  local portWords=(0000 0105 0204 0306)
+
+  echo "${#portData[2]}"
+
+  let action=0
+  let activeFramebuffers=$1
+
+  if [[ $2 -eq 1 ]];
+    then
+      let action=1
+      echo 'Increase number of frame buffers.'
+    else
+      let action=-1
+      echo 'Decrease number of frame buffers.'
+  fi
+
+  exit -1
 }
 
 #
@@ -2157,8 +2188,10 @@ function _doAction()
          do
            if [[ index -eq 0 ]];
              then
+               # Singular form.
                local text="$value active frame buffer"
              else
+               # Plural form.
                local text="$value active frame buffers"
            fi
 
@@ -2178,6 +2211,14 @@ function _doAction()
          if (( $? > 0 ));
            then
              gDWords[3]="0${choice}${gDWords[3]:2:2}"
+
+             if (( numberOfFramebuffers > choice-1 ));
+               then
+                 _patchPorts -1
+               else
+                 _patchPorts 1
+             fi
+
              _showModifiedData
          fi
          ;;
@@ -2185,7 +2226,7 @@ function _doAction()
     p|P) if ( _confirmed 'Are you sure that you want to patch the kext with this data' );
            then
              _updatePlatformData
-             _patchFile
+             _patchFile "patch"
            else
              _clearLines $items+1
              _showMenu
@@ -2708,6 +2749,7 @@ function _main()
 
   if [[ $(_fileExists "$TARGET_FILE") -eq 1 ]];
     then
+      _getConnectorTableOffset
       #
       # Check script name and change target (kext) filename.
       #
@@ -2842,7 +2884,7 @@ case "$gNumberOfArguments" in
          #
          # Are we root?
          #
-         if [[ $(gPlatformID -u) -ne 0 ]];
+         if [[ $(id -u) -ne 0 ]];
            then
              #
              # No, ask for password and run script as root (with elevated privileges).
