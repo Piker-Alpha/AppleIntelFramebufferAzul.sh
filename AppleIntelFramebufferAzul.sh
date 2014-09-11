@@ -70,6 +70,9 @@
 #			-       variable gDataFileSelected added (set to 1 if a data file is selected).
 #			-       fixed a root user issue/now using gID (like in my other scripts).
 #			-       DEBUG renamed to gDebug (like in my other scripts).
+#			-       call _getConnectorTableOffset right after the filename change for capri.
+#			-       Capri script now works again without nm (bytes vs characters mixup).
+#			-       fixed some debug output formats.
 #
 
 gScriptVersion=2.9
@@ -192,7 +195,7 @@ COLOR_END="\e[0m"
 
 function _DEBUG_PRINT()
 {
-  if [[ $gDebug -eq 1 ]];
+  if [[ gDebug -eq 1 ]];
     then
       printf "$1"
   fi
@@ -1053,6 +1056,7 @@ function _initSymbolTableVariables
           let gNumberOfSymbols=$(_reverseBytes ${loadCommands:($index+24):8})
           let gStringTableOffset=$(_reverseBytes ${loadCommands:($index+32):8})
           let gStringTableSize=$(_reverseBytes ${loadCommands:($index+40):8})
+
           return
         else
           #
@@ -1072,10 +1076,11 @@ function _initSymbolTableVariables
 
 function _getConnectorTableOffset()
 {
+  local offset=0
   #
   # Check if nm (part of Xcode/command line tools) is installed.
   #
-  if [[ -e /usr/bin/nm && $USE_NM -eq 1 ]];
+  if [[ -e /usr/bin/nm && USE_NM -eq 1 ]];
     then
       #
       # Yes. Get offset to _gPlatformInformationList
@@ -1123,6 +1128,10 @@ function _getConnectorTableOffset()
           #
           if [[ $(xxd -s $offset -l 25 -c 25 "$TARGET_FILE" | sed -e 's/.*_//g') == "gPlatformInformationList" ]];
             then
+              if [[ gDebug ]];
+                then
+                  printf "Offset to _gPlatformInformationList found @ 0x%x/$offset\n" $offset
+              fi
               #
               # Set start position.
               #
@@ -1138,18 +1147,22 @@ function _getConnectorTableOffset()
               while [ $start -lt $symbolTableEnd ];
               do
                 #
-                # Read 8KB chunk from the AppleIntelFramebufferAzul binary.
+                # Read 8KB chunk from the AppleIntelFramebufferAzul/Capri binary.
                 #
-                _DEBUG_PRINT "Reading 8192 bytes @ 0x%08x from AppleIntelFramebufferAzul\n" $start
+                if [[ gDebug ]];
+                  then
+                    printf "Reading 8192 bytes @ 0x%08x from $gModuleName\n" $start
+                fi
+
                 local symbolTableData=$(xxd -s $start -l 8192 -ps "$TARGET_FILE" | tr -d '\n')
                 #
                 # Reinit index.
                 #
                 let index=0
                 #
-                # Secondary loop.
+                # Secondary loop (16384 characters or 8192 bytes).
                 #
-                while [ $index -lt 8192 ];
+                while [ $index -lt 16384 ];
                 do
                   let stringTableIndex=$(_reverseBytes ${symbolTableData:($index):8})
                   let currentAddress=$gStringTableOffset+$stringTableIndex
@@ -1168,7 +1181,10 @@ function _getConnectorTableOffset()
                       let index/=2
                       let stringTableOffset=$start+$index
 
-                      _DEBUG_PRINT "Offset $gConnectorTableOffset to _gPlatformInformationList found @ 0x%08x/$stringTableOffset!\n" $stringTableOffset
+                      if [[ gDebug ]];
+                        then
+                          printf "Offset 0x%x/$gConnectorTableOffset to _gPlatformInformationList found @ 0x%x/$stringTableOffset!\n" $gConnectorTableOffset $stringTableOffset
+                      fi
                       #
                       # Done.
                       #
@@ -1191,6 +1207,7 @@ function _getConnectorTableOffset()
           fi
       fi
   fi
+exit -1
 }
 
 #
@@ -1296,7 +1313,7 @@ function _showPlatformIDs()
 
   printf "The supported platformIDs are:\n\n"
 
-  for platformID in ${data[@]}
+  for platformID in "${data[@]}"
   do
     let index++
     printf "[%2d] : ${platformID} - $(_printInfo ${platformID:2:4})\n" $index
@@ -2271,8 +2288,6 @@ function _doAction()
 
 function _showMenu()
 {
-  local moduleName=''
-
   printf "What would you like to do next?\n\n"
   printf "[ 1 ] Change the ${COLOR_BLACK}platform-id${COLOR_END}\n"
   printf "[ 2 ] Change the amount of ${COLOR_RED}BIOS-allocated memory${COLOR_END}\n"
@@ -2286,13 +2301,7 @@ function _showMenu()
   printf "[ G ] Generate Base64 data\n"
   printf "[ P ] Patch "
 
-  case $gScriptType in
-    SNB  ) moduleName='AppleIntelSNBGraphicsFB' ;;
-    CAPRI) moduleName='AppleIntelFramebufferCapri' ;;
-    AZUL ) moduleName='AppleIntelFramebufferAzul' ;;
-  esac
-
-  printf "$moduleName.kext\n"
+  printf "$gModuleName.kext\n"
   printf "[ U ] Undo frame buffer changes\n\n"
 
   read -p "Please choose the action to perform (Exit/1-9/G/P/U) ? " choice
@@ -2666,7 +2675,7 @@ function _checkForDataFile()
 #--------------------------------------------------------------------------------
 #
 
-function _setScriptType()
+function _initScriptGlobals()
 {
   let UNKNOWN=0
   let SNB=1
@@ -2682,14 +2691,19 @@ function _setScriptType()
     *        ) gScriptType=UNKNOWN ;;
   esac
   #
-  # Check script type to select the target platform-id property.
+  # Check script type to select the target platform-id property and modulename.
   #
-  if [[ $gScriptType -eq SNB ]];
-    then
-      gTargetProperty="AAPL,snb-platform-id"
-    else
-      gTargetProperty="AAPL,ig-platform-id"
-  fi
+  case $gScriptType in
+    SNB  ) gModuleName='AppleIntelSNBGraphicsFB'
+           gTargetProperty="AAPL,snb-platform-id"
+           ;;
+    CAPRI) gModuleName='AppleIntelFramebufferCapri'
+           gTargetProperty="AAPL,ig-platform-id"
+           ;;
+    AZUL ) gModuleName='AppleIntelFramebufferAzul'
+           gTargetProperty="AAPL,ig-platform-id"
+           ;;
+  esac
 }
 
 #
@@ -2769,7 +2783,6 @@ function _main()
 
   if [[ $(_fileExists "$TARGET_FILE") -eq 1 ]];
     then
-      _getConnectorTableOffset
       #
       # Check script name and change target (kext) filename.
       #
@@ -2777,6 +2790,10 @@ function _main()
         then
           TARGET_FILE=$(echo "$TARGET_FILE" | sed -e 's/Azul/Capri/g')
       fi
+      #
+      # Get offset (used in _getConnectorTableData as start address).
+      #
+      _getConnectorTableOffset
       #
       # Check filename (adds backward compatibility).
       #
@@ -2866,7 +2883,7 @@ if [[ gID -ne 0 ]];
     #
     # Set script type from script name.
     #
-    _setScriptType
+    _initScriptGlobals
     #
     # Select action based on (number of) arguments.
     #
