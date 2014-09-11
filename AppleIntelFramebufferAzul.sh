@@ -73,6 +73,7 @@
 #			-       call _getConnectorTableOffset right after the filename change for capri.
 #			-       Capri script now works again without nm (bytes vs characters mixup).
 #			-       fixed some debug output formats.
+#			-       function _getOffset now always calls _checkForDataFile.
 #
 
 gScriptVersion=2.9
@@ -1456,15 +1457,10 @@ function _getOffset()
 
   _getDataSegmentOffset
   #
-  # Do we have a given/detected platformID?
+  # Show a list with available data files. Last menu item is used to
+  # shows a list with all located/supported platformIDs in the kext.
   #
-  if [[ gPlatformID -eq 0 ]];
-    then
-      #
-      # No. Show list with data files/supported platformIDs.
-      #
-      _checkForDataFile
-  fi
+  _checkForDataFile
   #
   # Do we have a platformID (now)?
   #
