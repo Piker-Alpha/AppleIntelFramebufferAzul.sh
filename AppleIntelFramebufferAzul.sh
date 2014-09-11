@@ -1207,7 +1207,6 @@ function _getConnectorTableOffset()
           fi
       fi
   fi
-exit -1
 }
 
 #
