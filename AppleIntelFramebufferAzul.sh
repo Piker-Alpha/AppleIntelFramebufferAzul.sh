@@ -2393,19 +2393,42 @@ function _getDWords()
 {
   local i index
   #
-  # Do we have a matching data file or a filename?
+  # Should we use the (extracted) data from the kext?
   #
-# if [[ ! -e /tmp/framebuffer.dat || $# -eq 0 ]];
   if [[ $# -eq 0 ]];
     then
       #
-      # No. Extract data from kext and create the file.
+      # Yes. Extract data from kext and create data file (if confirmed).
       #
       xxd -s $fileOffset -l $gDataBytes -ps "$TARGET_FILE" | tr -d '\n' > /tmp/framebuffer.dat
-      cp /tmp/framebuffer.dat $gDataFile
-    else
+
       if [[ -e $gDataFile ]];
         then
+          echo ''
+          #
+          # Ask for confirmation before overwriting an older data file with the data from the kext.
+          #
+          if ( _confirmed "Do you want to overwrite $gDataFile" );
+            then
+              cp /tmp/framebuffer.dat $gDataFile
+            else
+              #
+              # Copy the data file to the /tmp/ directory (used to detect data file changes).
+              #
+              cp $gDataFile /tmp/framebuffer.dat
+          fi
+
+          _clearLines 2
+      fi
+    else
+      #
+      # No (argument 1 given). Use data file (if we have one).
+      #
+      if [[ -e $gDataFile ]];
+        then
+          #
+          # Copy the data file to the /tmp/ directory (used to detect data file changes).
+          #
           cp $gDataFile /tmp/framebuffer.dat
       fi
   fi
