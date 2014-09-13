@@ -141,7 +141,7 @@ let gPlatformID=0
 #
 # Set to 1 in _checkForDataFile if a data file is selected (used in _showData).
 #
-let gDataFileSelected=0
+let gDataFileSelected=-1
 
 #
 # Change this to whatever full patch you want to use.
@@ -1457,10 +1457,17 @@ function _getOffset()
 
   _getDataSegmentOffset
   #
-  # Show a list with available data files. Last menu item is used to
-  # shows a list with all located/supported platformIDs in the kext.
+  # gDataFileSelected is -1 the first time we come here, but it will be changed to
+  # 0 or 1 in function _checkForDataFile, and the check here stops us from showing
+  # the list with data files for a second time (after _showPlatformIDs is called).
   #
-  _checkForDataFile
+  if [[ gDataFileSelected -eq -1 ]];
+    then
+      #
+      # Show a list with available data files. Last menu item is used to
+      #
+      _checkForDataFile
+  fi
   #
   # Do we have a platformID (now)?
   #
@@ -2632,7 +2639,9 @@ function _checkForDataFile()
                                   _checkForDataFile
                               fi
                           fi
+                          ;;
 
+              *         ) let gDataFileSelected=0
                           ;;
           esac
         else
@@ -2658,7 +2667,8 @@ function _checkForDataFile()
                      _clearLines 5
                      ;;
 
-              *    ) _invalidMenuAction 1
+              *    ) let gDataFileSelected=0
+                     _invalidMenuAction 1
                      _checkForDataFile
                      ;;
           esac
