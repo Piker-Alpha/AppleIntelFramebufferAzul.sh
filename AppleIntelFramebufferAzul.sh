@@ -4,7 +4,7 @@
 # This script is a stripped/rewrite of AppleIntelSNBGraphicsFB.sh 
 #
 # Version 0.9 - Copyright (c) 2012 by † RevoGirl
-# Version 2.9 - Copyright (c) 2013 by Pike R. Alpha <PikeRAlpha@yahoo.com>
+# Version 3.0 - Copyright (c) 2013 by Pike R. Alpha <PikeRAlpha@yahoo.com>
 #
 #
 # Updates:
@@ -74,9 +74,19 @@
 #			-       Capri script now works again without nm (bytes vs characters mixup).
 #			-       fixed some debug output formats.
 #			-       function _getOffset now always calls _checkForDataFile.
+#			- v3.0  now using editable data instead of one long string (Pike, September 2014)
+#			-       function _savePlatformData modified to support the new editable data files.
+#			-       function _getDWords modified to support the new editable data files.
+#			-       typo in cursor bytes fixed (0 at the wrong spot).
+#			-       moved 'Change the connector type' to 'Change port layout/configuration'.
+#			-       function _showPortMenu, _showPortData and _selectPort added.
+#			-       function _doAction changed/extended to support the actions of _showPortMenu.
+#			-       portMenuFlag added to function _doAction for our new port sub-menu.
+#			-       function _getPortName now returns plain text without color info.
+#			-
 #
 
-gScriptVersion=2.9
+gScriptVersion=3.0
 
 #
 # Used to print the name of the running script
@@ -142,6 +152,11 @@ let gPlatformID=0
 # Set to 1 in _checkForDataFile if a data file is selected (used in _showData).
 #
 let gDataFileSelected=-1
+
+#
+# Do not change this!
+#
+let gPortMenuFlag=1
 
 #
 # Change this to whatever full patch you want to use.
@@ -1708,16 +1723,32 @@ function _hexToPortNumber()
 
 function _savePlatformData()
 {
+  local data index
+  let bytesPerRow=gBytesPerRow/2
+  let bytesPerRow-=1
+  let index=0
   #
   # Skip checksum checks and confirmation?
   #
   if [[ $# -eq 1 ]];
     then
+      echo -n '' > /tmp/framebuffer.dat
       #
       # Yes. Silently update/write to the file.
       #
-      echo -n "${gDWords[@]}" | tr -d ' ' > "$gDataFile"
-      cp "$gDataFile" /tmp/framebuffer.dat
+      for ((y=0; y < gRowsInTable; y++));
+      do
+        for ((x=0; x < bytesPerRow; x++));
+        do
+          echo -n "${gDWords[index++]} " >> /tmp/framebuffer.dat
+        done
+
+        echo "${gDWords[index++]}" >> /tmp/framebuffer.dat
+      done
+      #
+      # The data should now be saved so let's copy the file.
+      #
+      cp /tmp/framebuffer.dat $gDataFile
     else
       #
       # step 1: echo gDWords without the trailing newlines character (bash only).
@@ -1727,9 +1758,10 @@ function _savePlatformData()
       #
       local dataCRC=$(echo -n "${gDWords[@]}" | tr -d ' ' | sum | awk '{print $1}')
       #
-      # Here we basically do the same (from file) but we can skip step 2.
+      # Here we basically do the same as the steps above, but from file.
+      # We now also have to remove newlines characters, but we can skip step 2.
       #
-      local fileCRC=$(cat /tmp/framebuffer.dat | sum | awk '{print $1}')
+      local fileCRC=$(cat /tmp/framebuffer.dat | tr -d ' \n' | sum | awk '{print $1}')
       #
       # Different checksums?
       #
@@ -1740,11 +1772,23 @@ function _savePlatformData()
           #
           if ( _confirmed 'Do you want to save your changes' );
             then
+              echo -n '' > /tmp/framebuffer.dat
               #
               # Here the actual writing takes place, without the trailing newline character.
               #
-              echo -n "${gDWords[@]}" | tr -d ' ' > "$gDataFile"
-              cp "$gDataFile" /tmp/framebuffer.dat
+              for ((y=0; y < gRowsInTable; y++));
+              do
+                for ((x=0; x < bytesPerRow; x++));
+                do
+                  echo -n "${gDWords[index++]} " >> /tmp/framebuffer.dat
+                done
+
+                echo "${gDWords[index++]}" >> /tmp/framebuffer.dat
+              done
+              #
+              # The data should now be saved so let's copy the file.
+              #
+              cp /tmp/framebuffer.dat $gDataFile
           fi
 
           _clearLines 1
@@ -1788,7 +1832,7 @@ function _getPortName()
     *       ) text='Unknown' ;;
   esac
 
-  echo "${COLOR_ORNGE}$text${COLOR_END}"
+  echo "$text"
 }
 
 #
@@ -1804,7 +1848,7 @@ function _clearLines()
       let lines=1
   fi
 
-  for ((line=0; line<$lines; line++));
+  for ((line=0; line < lines; line++));
   do
     printf "\e[A\e[K"
   done
@@ -1831,6 +1875,7 @@ function _validateMenuAction()
   local items=$2
   local selected=$3
   local action=$4
+  local portMenuFlag=$5
 
   echo ''
   read -p "$text (Cancel/1-$items) ? " choice
@@ -1841,7 +1886,21 @@ function _validateMenuAction()
                      then
                        return
                      else
-                       _showMenu
+                       #
+                       # Is the port menu flag set?
+                       #
+                       if [[ $portMenuFlag -eq 1 ]];
+                         then
+                           #
+                           # Yes. Show port sub-menu.
+                           #
+                           _showPortMenu
+                         else
+                           #
+                           # No. Show menu.
+                           #
+                           _showMenu
+                       fi
                    fi
                    ;;
 
@@ -1859,14 +1918,14 @@ function _validateMenuAction()
                        #
                        # No. Call _doAction with target action.
                        #
-                       _doAction $action
+                       _doAction $action $portMenuFlag
                    fi
                    ;;
 
     [[:digit:]]* ) if [[ $choice -eq 0 || $choice -eq $selected || $choice -gt $items ]];
                      then
                        _invalidMenuAction $items
-                       _doAction $action
+                       _doAction $action $portMenuFlag
                      else
                        _clearLines $items+4
                        return $choice
@@ -1874,7 +1933,7 @@ function _validateMenuAction()
                    ;;
 
     *            ) _invalidMenuAction $items
-                   _doAction $action
+                   _doAction $action $portMenuFlag
                    ;;
   esac
 }
@@ -1925,363 +1984,571 @@ function _patchPorts
 
 #
 #--------------------------------------------------------------------------------
+# Helper function used in _doAction
+#
+
+function _selectPort()
+{
+  local port index=0
+  local text=$1
+  local action=$2
+  local portMenuFlag=$3
+
+  printf "Change $text of port:\n\n"
+
+  for port in "${gPortNumbers[@]}"
+  do
+    printf "[ %d ] port ${gPortNumbers[index]} (${gConnectorNames[index++]} connector)\n" $index
+  done
+
+  _validateMenuAction "Please choose a port" 4 0 $action $portMenuFlag
+
+  return $choice
+}
+
+#
+#--------------------------------------------------------------------------------
 #
 
 function _doAction()
 {
-  local index=0 items=0 action=$1
-
-  case "$action" in
-    1  ) _showPlatformIDs 0
-         local targetID=$(_reverseBytes "${gPlatformID:2:8}")
-         gDWords[0]="${targetID:2:4}"
-         gDWords[1]="${targetID:6:4}"
-         _setDataFilename
-         #
-         # Argument '1' used to skip the checksum checks and confirmation.
-         #
-         _savePlatformData 1
-
-         _clearLines 2
-         #
-         # Argument '1' used to update the file name.
-         #
-         _showModifiedData 1
-         ;;
-
-    2  ) printf "Change BIOS-allocated memory to:\n\n"
-         local stolenMemory=$(_hexToMegaByte "${gDWords[4]}${gDWords[5]}")
-         let index=0
-         let selected=0
-
-         if [[ $gScriptType -eq CAPRI ]];
-           then
-             # Ivy Bridge
-             local values=(32 64 96 128 160 192 224 256 288 320 352 384 416 448 480 512 1024)
-           else
-             # Sandy Bridge and Haswell
-             local values=(32 64 96 128 160 192 224 256 288 320 352 384 416 448 480 512)
-         fi
-
-         for value in "${values[@]}"
-         do
-           let index++
-
-           if [[ $value == $stolenMemory ]];
-             then
-               let selected=$index
-               printf "[    ] %4s MB (current value)\n"  $value
-             else
-               printf "[ %2d ] %4s MB\n" $index $value
-           fi
-         done
-
-         _validateMenuAction "Please choose the amount of memory" $index $selected $action
-
-         if (( $? > 0 ));
-           then
-             local value=$(_megaBytesToHex "${values[$choice-1]}")
-             gDWords[4]=${value:8:2}${value:6:2}
-             gDWords[5]=${value:4:2}${value:2:2}
-             _showModifiedData
-         fi
-         ;;
-
-    3  ) printf "Change frame buffer memory to:\n\n"
-         #
-         # Values taken from the AppleIntelFramebufferAzul.kext binary
-         #
-         local value currentValue
-         local fbMemoryValues=(00000001 00003001 00008001 00002002)
-         let index=0
-         let selected=0
-
-         for value in "${fbMemoryValues[@]}"
-         do
-           let index++
-
-           if [[ $value == "${gDWords[6]}${gDWords[7]}" ]];
-             then
-               let selected=$index
-               printf "[   ] %d MB (current)\n" $(_hexToMegaByte $value)
-             else
-               printf "[ $index ] %d MB\n" $(_hexToMegaByte $value)
-           fi
-         done
-
-         _validateMenuAction "Please choose the amount of memory you want" 4 $selected $action
-
-         if (( $? > 0 ));
-           then
-             value=${fbMemoryValues[choice-1]}
-             gDWords[6]=${value:0:4}
-             gDWords[7]=${value:4:4}
-             _showModifiedData
-         fi
-         ;;
-
-    4  ) printf "Change cursor bytes to:\n\n"
-         #
-         # Values taken from the AppleIntelFramebufferAzul.kext binary
-         #
-         local value currentValue
-         local cursorBytes=(00000000 00005000 00006000 00009000 0000f000 00005001 00002002)
-         local wordCombos=('0200 0000 0101 0000' '0f00 0000 0101 0000' '0f00 0000 0101 0000' \
-                           'd600 0000 0505 0000' '0400 000 00000 0700' '1e00 0000 0505 0900' \
-                           '8e04 0000 0005 0500')
-
-         let index=0
-         let selected=0
-
-         for value in "${cursorBytes[@]}"
-         do
-           let index++
-
-           if [[ $value == "${gDWords[8]}${gDWords[9]}" ]];
-             then
-               let selected=$index
-               printf "[   ] %2d MB (current)\n" $(_hexToMegaByte $value)
-             else
-               printf "[ $index ] %2d MB\n" $(_hexToMegaByte $value)
-           fi
-         done
-
-         _validateMenuAction "Please choose the amount of cursor bytes" 7 $selected $action
-
-         if (( $? > 0 ));
-           then
-             value=${cursorBytes[$choice-1]}
-             gDWords[8]=${value:0:4}
-             gDWords[9]=${value:4:4}
+  local port index=0 items=0 action=$1
+  local menuItems=0
+  local gIndexNames=(first second third fourth)
+  #
+  # Check number of arguments (2 is used for port sub-menu actions).
+  #
+  if [[ $# -lt 2 ]];
+    then
+      case "$action" in
+        1  ) _showPlatformIDs 0
+             local targetID=$(_reverseBytes "${gPlatformID:2:8}")
+             gDWords[0]="${targetID:2:4}"
+             gDWords[1]="${targetID:6:4}"
+             _setDataFilename
              #
-             # Update ditto words.
+             # Argument '1' used to skip the checksum checks and confirmation.
              #
-             local words=(${wordCombos[$choice-1]})
-             gDWords[44]=${words[0]}
-             gDWords[45]=${words[1]}
-             gDWords[46]=${words[2]}
-             gDWords[47]=${words[3]}
-             _showModifiedData
-         fi
-         ;;
-
-    5  ) printf "Change Video Random Access Memory to:\n\n"
-         local value vramIndex
-
-         if [[ $gScriptType -eq CAPRI ]];
-           then
-             let vramIndex=8
-           else
-             let vramIndex=10
-         fi
-
-         local vram="${gDWords[vramIndex]}${gDWords[vramIndex+1]}"
-         #
-         # Values taken from the AppleIntelFramebufferAzul/Capri.kext binaries.
-         #
-         local vramValues=(00000010 00000018 00000030 00000020 00000040 00000060)
-
-         let index=0
-         let selected=0
-
-         for value in "${vramValues[@]}"
-         do
-           let index++
-
-           if [[ $value == $vram ]];
-             then
-               let selected=$index
-               printf "[   ] %4d MB (current)\n" $(_hexToMegaByte $value)
-             else
-               printf "[ $index ] %4d MB\n" $(_hexToMegaByte $value)
-           fi
-         done
-
-         _validateMenuAction "Please choose the amount of VRAM" 6 $selected $action
-
-         if (( $? > 0 ));
-           then
-             value=${vramValues[choice-1]}
-              gDWords[vramIndex]=${value:0:4}
-              gDWords[vramIndex+1]=${value:4:4}
-             _showModifiedData
-         fi
-         ;;
-
-    6  ) printf "Change backlight frequency to:\n\n"
-         local value bclIndex
-
-         if [[ $gScriptType -eq CAPRI ]];
-           then
-             let bclIndex=10
-           else
-             let bclIndex=12
-         fi
-
-         local frequency="${gDWords[bclIndex]}${gDWords[bclIndex+1]}"
-         #
-         # Values taken from the AppleIntelFramebufferAzul/Capri.kext binaries.
-         #
-         local bclFrequency=(6c050000 10070000 a1070000 d90a0000 99140000)
-
-         let index=0
-         let selected=0
-
-         for value in "${bclFrequency[@]}"
-         do
-           let index++
-
-           if [[ $value == $frequency ]];
-             then
-               let selected=$index
-               printf "[   ] %4d Hz (current)\n" $(_reverseBytes $value)
-             else
-               printf "[ %d ] %4d Hz\n" $index $(_reverseBytes $value)
-           fi
-         done
-
-         _validateMenuAction "Please choose a backlight frequency" 5 $selected $action
-
-         if (( $? > 0 ));
-           then
-             frequency=${bclFrequency[choice-1]}
-             gDWords[bclIndex]=${frequency:0:4}
-             gDWords[bclIndex+1]=${frequency:4:4}
+             _savePlatformData 1
+             _clearLines 2
              #
-             # Update the curve value (Apple is uses the same value).
+             # Argument '1' used to update the file name.
              #
-             gDWords[bclIndex+2]=${gDWords[bclIndex]}
-             gDWords[bclIndex+3]=${gDWords[bclIndex+1]}
-             _showModifiedData
-         fi
-         ;;
+             _showModifiedData 1
+             ;;
 
-    7  ) printf "The backlight frequency and maximum backlight PWM (Pulse Width Modulation)\n"
-         printf "are synchronised in this version. At least until I figured out what to do!\n"
-         sleep 5
-         _clearLines 2
-         _showMenu
-         ;;
+        2  ) printf "Change BIOS-allocated memory to:\n\n"
+             local stolenMemory=$(_hexToMegaByte "${gDWords[4]}${gDWords[5]}")
+             let index=0
+             let selected=0
 
-    8  ) printf "Choose the port you like to change:\n\n"
-         let index=0
-         let selected=0
-
-         for port in "${gPortNumbers[@]}"
-         do
-           printf "[ %d ] port ${gPortNumbers[index]} (${gConnectorNames[index++]} connector)\n" $index
-         done
-
-         _validateMenuAction "Please choose the connector" 4 0 $action
-
-         if (( $? > 0 ));
-           then
-             local portData=(${gPortData[choice-1]})
-         fi
-
-         printf "Change connector type for port ${gPortNumbers[choice-1]} to:\n\n"
-
-         local connectorValues=(01000000 02000000 04000000 00020000 00040000 00080000)
-         local connector=${portData[3]}
-         let index=0
-
-         for value in "${connectorValues[@]}"
-         do
-           local connectorName="${COLOR_ORANGE}"$(_getPortName $value)"${COLOR_END}"
-
-           if [[ $connector == "0x${connectorValues[index++]}" ]];
-             then
-               let selected=$index
-               printf "[   ] $connectorName connector (current)\n"
-             else
-               printf "[ $index ] $connectorName connector\n"
-           fi
-         done
-
-         _validateMenuAction "Please choose a connector type" 6 $selected $action
-
-         if (( $? > 0 ));
-           then
-             local connector=${connectorValues[$choice-1]}
-             let connectorIndex=${portData[2]}
-             gDWords[connectorIndex]=${connector:0:4}
-             gDWords[connectorIndex+1]=${connector:4:4}
-             _showModifiedData
-         fi
-         ;;
-
-    9  ) printf "Change number of framebuffers to:\n\n"
-         local numberOfFramebuffers
-         local words=(One Two Three Four)
-         let numberOfFramebuffers=${gDWords[3]:0:2}
-         let index=0
-
-         for value in "${words[@]}"
-         do
-           if [[ index -eq 0 ]];
-             then
-               # Singular form.
-               local text="$value active frame buffer"
-             else
-               # Plural form.
-               local text="$value active frame buffers"
-           fi
-
-           let index++
-
-           if [[ numberOfFramebuffers -eq index ]];
-             then
-               let selected=$index
-               printf "[   ] $text (current)\n"
-             else
-               printf "[ $index ] $text\n"
-           fi
-         done
-
-         _validateMenuAction "Please choose the number of frame buffers" 4 $selected $action
-
-         if (( $? > 0 ));
-           then
-             gDWords[3]="0${choice}${gDWords[3]:2:2}"
-
-             if (( numberOfFramebuffers > choice-1 ));
+             if [[ $gScriptType -eq CAPRI ]];
                then
-                 _patchPorts -1
+                 # Ivy Bridge
+                 local values=(32 64 96 128 160 192 224 256 288 320 352 384 416 448 480 512 1024)
                else
-                 _patchPorts 1
+                 # Sandy Bridge and Haswell
+                 local values=(32 64 96 128 160 192 224 256 288 320 352 384 416 448 480 512)
              fi
 
+             local menuItems="${#values[@]}"
+
+             for value in "${values[@]}"
+             do
+               let index++
+
+               if [[ $value == $stolenMemory ]];
+                 then
+                   let selected=$index
+                   printf "[    ] %4s MB (current value)\n"  $value
+                 else
+                   printf "[ %2d ] %4s MB\n" $index $value
+               fi
+             done
+
+             _validateMenuAction "Please choose the amount of memory" $menuItems $selected $action
+
+             if (( $? > 0 ));
+               then
+                 local value=$(_megaBytesToHex "${values[$choice-1]}")
+                 gDWords[4]=${value:8:2}${value:6:2}
+                 gDWords[5]=${value:4:2}${value:2:2}
+                 _showModifiedData
+             fi
+             ;;
+
+        3  ) printf "Change frame buffer memory to:\n\n"
+             #
+             # Values taken from the AppleIntelFramebufferAzul.kext binary
+             #
+             local value currentValue
+             local fbMemoryValues=(00000001 00003001 00008001 00002002)
+             local menuItems="${#fbMemoryValues[@]}"
+             let index=0
+             let selected=0
+
+             for value in "${fbMemoryValues[@]}"
+             do
+               let index++
+
+               if [[ $value == "${gDWords[6]}${gDWords[7]}" ]];
+                 then
+                   let selected=$index
+                   printf "[   ] %d MB (current)\n" $(_hexToMegaByte $value)
+                 else
+                   printf "[ $index ] %d MB\n" $(_hexToMegaByte $value)
+               fi
+             done
+
+             _validateMenuAction "Please choose the amount of memory you want" $menuItems $selected $action
+
+             if (( $? > 0 ));
+               then
+                 value=${fbMemoryValues[choice-1]}
+                 gDWords[6]=${value:0:4}
+                 gDWords[7]=${value:4:4}
+                 _showModifiedData
+             fi
+             ;;
+
+        4  ) printf "Change cursor bytes to:\n\n"
+             #
+             # Values taken from the AppleIntelFramebufferAzul.kext binary
+             #
+             local value currentValue
+             local cursorBytes=(00000000 00005000 00006000 00009000 0000f000 00005001 00002002)
+             local menuItems="${#cursorBytes[@]}"
+             local wordCombos=('0200 0000 0101 0000' '0f00 0000 0101 0000' '0f00 0000 0101 0000' \
+                               'd600 0000 0505 0000' '0400 0000 0000 0700' '1e00 0000 0505 0900' \
+                               '8e04 0000 0005 0500')
+
+             let index=0
+             let selected=0
+
+             for value in "${cursorBytes[@]}"
+             do
+               let index++
+
+               if [[ $value == "${gDWords[8]}${gDWords[9]}" ]];
+                 then
+                   let selected=$index
+                   printf "[   ] %2d MB (current)\n" $(_hexToMegaByte $value)
+                 else
+                   printf "[ $index ] %2d MB\n" $(_hexToMegaByte $value)
+               fi
+             done
+
+             _validateMenuAction "Please choose the amount of cursor bytes" $menuItems $selected $action
+
+             if (( $? > 0 ));
+               then
+                 value=${cursorBytes[$choice-1]}
+                 gDWords[8]=${value:0:4}
+                 gDWords[9]=${value:4:4}
+                 #
+                 # Update ditto words.
+                 #
+                 local words=(${wordCombos[$choice-1]})
+                 gDWords[44]=${words[0]}
+                 gDWords[45]=${words[1]}
+                 gDWords[46]=${words[2]}
+                 gDWords[47]=${words[3]}
+                 _showModifiedData
+             fi
+             ;;
+
+        5  ) printf "Change Video Random Access Memory to:\n\n"
+             local value vramIndex
+
+             if [[ $gScriptType -eq CAPRI ]];
+               then
+                 let vramIndex=8
+               else
+                 let vramIndex=10
+             fi
+
+             local vram="${gDWords[vramIndex]}${gDWords[vramIndex+1]}"
+             #
+             # Values taken from the AppleIntelFramebufferAzul/Capri.kext binaries.
+             #
+             local vramValues=(00000010 00000018 00000030 00000020 00000040 00000060)
+             local menuItems="${#vramValues[@]}"
+             let index=0
+             let selected=0
+
+             for value in "${vramValues[@]}"
+             do
+               let index++
+
+               if [[ $value == $vram ]];
+                 then
+                   let selected=$index
+                   printf "[   ] %4d MB (current)\n" $(_hexToMegaByte $value)
+                 else
+                   printf "[ $index ] %4d MB\n" $(_hexToMegaByte $value)
+               fi
+             done
+
+             _validateMenuAction "Please choose the amount of VRAM" $menuItems $selected $action
+
+             if (( $? > 0 ));
+               then
+                 value=${vramValues[choice-1]}
+                 gDWords[vramIndex]=${value:0:4}
+                 gDWords[vramIndex+1]=${value:4:4}
+                _showModifiedData
+             fi
+             ;;
+
+        6  ) printf "Change backlight frequency to:\n\n"
+             local value bclIndex
+
+             if [[ $gScriptType -eq CAPRI ]];
+               then
+                 let bclIndex=10
+               else
+                 let bclIndex=12
+             fi
+
+             local frequency="${gDWords[bclIndex]}${gDWords[bclIndex+1]}"
+             #
+             # Values taken from the AppleIntelFramebufferAzul/Capri.kext binaries.
+             #
+             local bclFrequency=(6c050000 10070000 a1070000 d90a0000 99140000)
+             local menuItems="${#bclFrequency[@]}"
+             let index=0
+             let selected=0
+
+             for value in "${bclFrequency[@]}"
+             do
+               let index++
+
+               if [[ $value == $frequency ]];
+                 then
+                   let selected=$index
+                   printf "[   ] %4d Hz (current)\n" $(_reverseBytes $value)
+                 else
+                   printf "[ %d ] %4d Hz\n" $index $(_reverseBytes $value)
+               fi
+             done
+
+             _validateMenuAction "Please choose a backlight frequency" $menuItems $selected $action
+
+             if (( $? > 0 ));
+               then
+                 frequency=${bclFrequency[choice-1]}
+                 gDWords[bclIndex]=${frequency:0:4}
+                 gDWords[bclIndex+1]=${frequency:4:4}
+                 #
+                 # Update the curve value (Apple is uses the same value).
+                 #
+                 gDWords[bclIndex+2]=${gDWords[bclIndex]}
+                 gDWords[bclIndex+3]=${gDWords[bclIndex+1]}
+                 _showModifiedData
+             fi
+             ;;
+
+        7  ) printf "The backlight frequency and maximum backlight PWM (Pulse Width Modulation)\n"
+             printf "are synchronised in this version. At least until I figured out what to do!\n"
+             sleep 5
+             _clearLines 2
+             _showMenu
+             ;;
+
+        8  ) _clearLines $gRowsInTable+1
+             _showPortData
+             ;;
+
+        9  ) _savePlatformData
+             /usr/bin/nano $gDataFile
+             _getDWords 1
              _showModifiedData
-         fi
-         ;;
+             ;;
 
-    p|P) if ( _confirmed 'Are you sure that you want to patch the kext with this data' );
-           then
-             _updatePlatformData
-             _patchFile "patch"
-           else
-             _clearLines $items+1
-             _showMenu
-         fi
-         ;;
+        p|P) if ( _confirmed 'Are you sure that you want to patch the kext with this data' );
+               then
+                 _updatePlatformData
+                 _patchFile "patch"
+               else
+                 _clearLines $items+1
+                 _showMenu
+             fi
+             ;;
 
-    g|G) echo "Base64 representation of framebuffer $gDataFile:"
-         echo '--------------------------------------------------------------------------------'
-         base64 -b 80 "$gDataFile"
-         echo ' '
-         exit 0
-         ;;
+        g|G) echo "Base64 representation of framebuffer $gDataFile:"
+             echo '--------------------------------------------------------------------------------'
+             base64 -b 80 "$gDataFile"
+             echo ' '
+             exit 0
+             ;;
 
-    u|U) if ( _confirmed 'Are you sure that you want to restore the factory data' );
-           then
-             _initFactoryPlatformInfo
-             _patchFile "restore"
-           else
-             _clearLines $items+1
-             _showMenu
-         fi
-         ;;
-  esac
+        u|U) if ( _confirmed 'Are you sure that you want to restore the factory data' );
+               then
+                 _initFactoryPlatformInfo
+                 _patchFile "restore"
+               else
+                 _clearLines $items+1
+                 _showMenu
+             fi
+             ;;
+      esac
+    else
+      #
+      # Port sub-menu actions.
+      #
+      case "$action" in
+        1  ) #
+             # Call _selectPort with header text, action (1) and port menu flag (1).
+             #
+             _selectPort "${COLOR_BLACK}frame buffer index${COLOR_END}" $action $gPortMenuFlag
+
+             if [[ "$TARGET_FILE" =~ "AppleIntelFramebufferAzul" ]];
+               then
+                 local builtIn=$(echo 00)
+               else
+                 local builtIn=$(echo 01)
+             fi
+
+             printf "Change ${COLOR_BLACK}frame buffer index${COLOR_END} of the ${gIndexNames[choice-1]} frame buffer to:\n\n"
+             let index=0
+             let selected=0
+             let port=$choice-1
+             local portData=(${gPortData[port]})
+             local portValues=(00 01 02 03 ff)
+             local menuItems="${#portValues[@]}"
+             local portIndex=${portData[0]}
+             local applePort=$(printf "%02s" ${portData[1]})
+
+             for value in "${portValues[@]}"
+             do
+               #
+               # FIXME !!!
+               #
+               if [[ $applePort -eq $builtIn ]];
+                 then
+                   local helpText=", usually eDP/LVDS"
+                 else
+                   local helpText=""
+               fi
+
+               if [[ $applePort == "${portValues[index++]}" ]];
+                 then
+                   let selected=$index
+                   printf "[   ] use ${portValues[index-1]} for port ${COLOR_BLUE}${portData[1]}${COLOR_END} $helpText (current)\n"
+                 else
+                   printf "[ $index ] use ${portValues[index-1]} for port ${COLOR_BLUE}${portData[1]}${COLOR_END}\n"
+               fi
+             done
+
+             _validateMenuAction "Please choose a value" $menuItems $selected $action $gPortMenuFlag
+
+             if (( $? > 0 ));
+               then
+                 #
+                 # Update port nibble value.
+                 #
+                 gDWords[portIndex]="${portValues[choice-1]}${gDWords[portIndex]:2:2}"
+                 #
+                 # Wipe port nibble sub-menu and show the modified data.
+                 #
+                 # TODO: Figure out why we can't use -1 here!
+                 #
+                 _clearLines $menuItems
+                 _showPortData
+             fi
+             ;;
+
+        2  ) #
+             # Call _selectPort with header text, action (2) and port menu flag (1).
+             #
+             _selectPort "${COLOR_BLUE}port nibble${COLOR_END}" $action $gPortMenuFlag
+
+             if [[ "$TARGET_FILE" =~ "AppleIntelFramebufferAzul" ]];
+               then
+                 local portValues=(00 04 05 06)
+                 local builtIn=$(echo 00)
+               else
+                 local portValues=(00 03 04 05 06)
+                 local builtIn=$(echo 00)
+             fi
+
+             printf "Change ${COLOR_BLUE}port nibble${COLOR_END} of the ${gIndexNames[choice-1]} frame buffer to:\n\n"
+             let index=0
+             let selected=0
+             let port=$choice-1
+             local portData=(${gPortData[port]})
+             local portIndex=${portData[0]}
+             local applePort=$(printf "%02s" ${portData[1]})
+             let menuItems="${#portValues[@]}"
+
+             for value in "${portValues[@]}"
+             do
+               #
+               # FIXME !!!
+               #
+               if [[ $applePort -eq $builtIn ]];
+                 then
+                   local helpText=", usually eDP/LVDS"
+                 else
+                   local helpText=""
+               fi
+
+               if [[ $applePort == "${portValues[index++]}" ]];
+                 then
+                   let selected=$index
+                   printf "[   ] use ${portValues[index-1]} for port ${COLOR_BLUE}${portData[1]}${COLOR_END} $helpText (current)\n"
+                 else
+                   printf "[ $index ] use ${portValues[index-1]} for port ${COLOR_BLUE}${portData[1]}${COLOR_END}\n"
+               fi
+             done
+
+             _validateMenuAction "Please choose a value" $menuItems $selected $action $gPortMenuFlag
+
+             if (( $? > 0 ));
+               then
+                 #
+                 # Update port nibble value.
+                 #
+                 gDWords[portIndex]="${gDWords[portIndex]:0:2}${portValues[choice-1]}"
+                 #
+                 # Wipe port nibble sub-menu and show the modified data.
+                 #
+                 _clearLines $menuItems+1
+                 _showPortData
+             fi
+             ;;
+
+        3  ) #
+             # Call _selectPort with header text, action (2) and port menu flag (1).
+             #
+             _selectPort "${COLOR_CYAN}pipe attribute${COLOR_END}" $action $gPortMenuFlag
+
+             printf "Change ${COLOR_CYAN}pipe attribute${COLOR_END} of the ${gIndexNames[choice-1]} frame buffer to:\n\n"
+             let index=0
+             let selected=0
+             let port=$choice-1
+             local attributeValues=(0800 0900 0a00 1000 1200 1400)
+             local menuItems="${#attributeValues[@]}"
+             local portData=(${gPortData[port]})
+             local portIndex=${portData[0]}
+             local attribute="${gDWords[portIndex+1]}"
+
+             for value in "${attributeValues[@]}"
+             do
+               local attributeValue="${attributeValues[index++]}"
+
+               if [[ $attribute == $attributeValue ]];
+                 then
+                   let selected=$index
+                   printf "[   ] $attributeValue (current)\n"
+                 else
+                   printf "[ $index ] $attributeValue\n"
+               fi
+             done
+
+             _validateMenuAction "Please choose a value" $menuItems $selected $action $gPortMenuFlag
+
+             if (( $? > 0 ));
+               then
+                 #
+                 # Update attribute value.
+                 #
+                 gDWords[portIndex+1]=${attributeValues[choice-1]}
+                 #
+                 # Wipe pipe attribute sub-menu and show the modified data.
+                 #
+                 _clearLines $menuItems-1
+                 _showPortData
+             fi
+             ;;
+
+        4  ) _selectPort "${COLOR_ORANGE}connector type${COLOR_END}" $action $gPortMenuFlag
+
+             printf "Change ${COLOR_ORANGE}connector type${COLOR_END} of the ${gIndexNames[choice-1]} frame buffer to:\n\n"
+             let index=0
+             let selected=0
+             let port=$choice-1
+             local connectorValues=(01000000 02000000 04000000 00020000 00040000 00080000)
+             local menuItems="${#connectorValues[@]}"
+             local portData=(${gPortData[port]})
+             let connectorIndex=${portData[2]}
+             local connector=${portData[3]}
+
+             for value in "${connectorValues[@]}"
+             do
+               local connectorName="${COLOR_ORANGE}"$(_getPortName $value)"${COLOR_END}"
+
+               if [[ $connector == "0x${connectorValues[index++]}" ]];
+                 then
+                   let selected=$index
+                   printf "[   ] $connectorName connector (current)\n"
+                 else
+                   printf "[ $index ] $connectorName connector\n"
+               fi
+             done
+
+             _validateMenuAction "Please choose a connector type" $menuItems $selected $action $gPortMenuFlag
+
+             if (( $? > 0 ));
+               then
+                 local connector=${connectorValues[choice-1]}
+                 gDWords[connectorIndex]=${connector:0:4}
+                 gDWords[connectorIndex+1]=${connector:4:4}
+                 #
+                 # Update connector name.
+                 #
+                 local connectorName=$(_getPortName $connector)
+                 gPortData[port]="${portData[0]} ${portData[1]} ${portData[2]} $connector $connectorName"
+                 gConnectorNames[port]="${COLOR_ORANGE}$connectorName${COLOR_END}"
+                 #
+                 # Wipe connector sub-menu and show the modified data.
+                 #
+                 _clearLines $menuItems-1
+                 _showPortData
+             fi
+             ;;
+
+        5  ) _selectPort "${COLOR_ORANGE}connector attribute${COLOR_END}" $action $gPortMenuFlag
+
+             printf "Change ${COLOR_ORANGE}connector attribute${COLOR_END} of the ${gIndexNames[choice-1]} frame buffer to:\n\n"
+             let index=0
+             let selected=0
+             let port=$choice-1
+             local attributeValues=(00000000 06000000 11000000 82000000 87000000 30000000 40000000)
+             local menuItems="${#attributeValues[@]}"
+             local portData=(${gPortData[port]})
+             local portIndex=${portData[0]}
+             local attribute="${gDWords[portIndex+4]}${gDWords[portIndex+5]}"
+
+             for value in "${attributeValues[@]}"
+             do
+               local attributeValue="${attributeValues[index]:0:4} ${attributeValues[index]:4:4}"
+
+               if [[ $attribute == "${attributeValues[index++]}" ]];
+                 then
+                   let selected=$index
+                   printf "[   ] $attributeValue (current)\n"
+                 else
+                   printf "[ $index ] $attributeValue\n"
+               fi
+             done
+
+             _validateMenuAction "Please choose a connector type" $menuItems $selected $action $gPortMenuFlag
+
+             if (( $? > 0 ));
+               then
+                 local attributeValue=${attributeValues[choice-1]}
+                 gDWords[portIndex+4]=${attributeValue:0:4}
+                 gDWords[portIndex+5]=${attributeValue:4:4}
+                 #
+                 # Wipe connector attribute sub-menu and show the modified data.
+                 #
+                 _clearLines $menuItems-2
+                 _showPortData
+             fi
+             ;;
+      esac
+  fi
 }
 
 #
@@ -2296,10 +2563,10 @@ function _showMenu()
   printf "[ 3 ] Change the amount of ${COLOR_BLUE}frame buffer memory${COLOR_END}\n"
   printf "[ 4 ] Change the amount of ${COLOR_GREEN}cursor bytes${COLOR_END}\n"
   printf "[ 5 ] Change the amount of ${COLOR_MAGENTA}VRAM${COLOR_END}\n"
-  printf "[ 6 ] Change the ${COLOR_CYAN}backlight frequency${COLOR_END}\n"
+  printf "[ 6 ] Change the ${COLOR_CYAN}backlight frequency${COLOR_END} (Panel Self Refresh)\n"
   printf "[ 7 ] Change the ${COLOR_PURPLE}maximum backlight PWM${COLOR_END} (Pulse Width Modulation)\n"
-  printf "[ 8 ] Change the ${COLOR_ORANGE}connector type${COLOR_END}\n"
-  printf "[ 9 ] Change number of frame buffers\n"
+  printf "[ 8 ] Change port layout/configuration\n"
+  printf "[ 9 ] Open $gDataFile in nano\n"
   printf "[ G ] Generate Base64 data\n"
   printf "[ P ] Patch "
 
@@ -2321,6 +2588,37 @@ function _showMenu()
     *       ) _invalidMenuAction 12
               _showMenu
               ;;
+  esac
+}
+
+#
+#--------------------------------------------------------------------------------
+#
+
+function _showPortMenu()
+{
+  printf "What would you like to do next?\n\n"
+  printf "[ 1 ] Change the ${COLOR_BLACK}frame buffer index${COLOR_END}\n"
+  printf "[ 2 ] Change the ${COLOR_BLUE}port nibble${COLOR_END}\n"
+  printf "[ 3 ] Change the ${COLOR_CYAN}pipe attribute${COLOR_END}\n"
+  printf "[ 4 ] Change the ${COLOR_ORANGE}connector type${COLOR_END}\n"
+  printf "[ 5 ] Change the ${COLOR_PURPLE}connector attribute${COLOR_END}\n"
+  printf "\n"
+
+  read -p "Please choose the action to perform (Back/1-5) ? " choice
+  case "$(_toLowerCase $choice)" in
+    [1-5]) _clearLines 9
+           _doAction $choice 1
+           ;;
+
+    b|B  ) _clearLines 15
+           _showData 1
+
+           ;;
+
+    *    ) _invalidMenuAction 5
+           _showPortMenu
+           ;;
   esac
 }
 
@@ -2392,6 +2690,9 @@ function _initPortData()
 function _getDWords()
 {
   local i index
+  let i=0
+  let index=0
+  let dwords=(gDataBytes/2)
   #
   # Should we use the (extracted) data from the kext?
   #
@@ -2402,23 +2703,41 @@ function _getDWords()
       #
       xxd -s $fileOffset -l $gDataBytes -ps "$TARGET_FILE" | tr -d '\n' > /tmp/framebuffer.dat
 
-      if [[ -e $gDataFile ]];
-        then
-          echo ''
-          #
-          # Ask for confirmation before overwriting an older data file with the data from the kext.
-          #
-          if ( _confirmed "Do you want to overwrite $gDataFile" );
-            then
-              cp /tmp/framebuffer.dat $gDataFile
-            else
-              #
-              # Copy the data file to the /tmp/ directory (used to detect data file changes).
-              #
-              cp $gDataFile /tmp/framebuffer.dat
-          fi
+      local asci=$(cat /tmp/framebuffer.dat)
 
-          _clearLines 2
+      while [[ index -lt dwords ]]
+      do
+        gDWords[index++]=${asci:i:4}
+        let i+=4
+      done
+
+      if [[ ! -e $gDataFile ]];
+        then
+          _savePlatformData 1
+        else
+          if [[ -e $gDataFile ]];
+            then
+              echo ''
+              #
+              # Ask for confirmation before overwriting an older data file with the data from the kext.
+              #
+              if ( _confirmed "Do you want to overwrite $gDataFile" );
+                then
+                  cp /tmp/framebuffer.dat $gDataFile
+                else
+                  #
+                  # Copy the data file to the /tmp/ directory (used to detect data file changes).
+                  #
+                  if [[ -e $gDataFile ]];
+                    then
+                      cp $gDataFile /tmp/framebuffer.dat
+                  fi
+              fi
+
+              _clearLines 2
+            else
+              cp /tmp/framebuffer.dat $gDataFile
+          fi
       fi
     else
       #
@@ -2431,18 +2750,46 @@ function _getDWords()
           #
           cp $gDataFile /tmp/framebuffer.dat
       fi
+
+      local data=$(cat $gDataFile | tr '\n' ' ')
+      gDWords=($data)
   fi
+}
 
-  let i=0
-  let index=0
-  let dwords=(gDataBytes/2)
-  local asci=$(cat $gDataFile)
+#
+#--------------------------------------------------------------------------------
+#
 
-  while [[ index -lt dwords ]]
+function _showPortData()
+{
+  local i port offset
+
+  for ((port = 0; port < 4; port++));
   do
-    gDWords[index++]=${asci:i:4}
-    let i+=4
+    #
+    # Split port data.
+    #
+    local portData=(${gPortData[port]})
+    #
+    # Update the port index.
+    #
+    let i=${portData[0]};
+    #
+    # Update the file offset.
+    #
+    let offset=$fileOffset+$i*2
+    #
+    # Show port layout/configuration data.
+    #
+    printf "%08x: ${COLOR_BLACK}${gDWords[i]:0:2}${COLOR_END}${gDWords[i]:2:1}${COLOR_BLUE}${gDWords[i]:3:1}${COLOR_END} " $offset
+    printf "${COLOR_CYAN}${gDWords[i+1]}${COLOR_END} ${COLOR_ORANGE}${gDWords[i+2]} ${gDWords[i+3]}${COLOR_END} "
+    printf "${COLOR_PURPLE}${gDWords[i+4]} ${gDWords[i+5]}${COLOR_END} "
+    printf "(port ${gPortNumbers[port]}, ${gConnectorNames[port]} connector)\n"
   done
+
+  echo ''
+
+  _showPortMenu
 }
 
 #
