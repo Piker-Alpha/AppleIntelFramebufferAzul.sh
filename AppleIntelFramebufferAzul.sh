@@ -83,7 +83,10 @@
 #			-       function _doAction changed/extended to support the actions of _showPortMenu.
 #			-       portMenuFlag added to function _doAction for our new port sub-menu.
 #			-       function _getPortName now returns plain text without color info.
-#			-
+#			-       underlined uppercase characters in menu actions (Back/Cancel and Exit).
+#			-       fixed the 'Invalid choice' error for menu actions: Back, Cancel and Exit.
+#			-       fixed a bug that saved data in postscript format instead of editable data.
+#			-       fixed a cosmetic issue with port 4 that confused people (added dots and removed ')(').
 #
 
 gScriptVersion=3.0
@@ -1338,14 +1341,15 @@ function _showPlatformIDs()
 
   if [[ $1 -eq 0 ]];
     then
-      local cancelExitText='Cancel'
+      local cancelExitText="${STYLE_UNDERLINED}C${STYLE_RESET}ancel"
     else
-      local cancelExitText='Exit'
+      local cancelExitText="${STYLE_UNDERLINED}E${STYLE_RESET}xit"
   fi
 
-  read -p "Please choose a target platform-id ($cancelExitText/1-${index}) ? " selection
-  case "$selection" in
-    c|C          ) if [[ $1 -ne 0 ]];
+  printf "Please choose a target platform-id ($cancelExitText/1-${index})"
+  read -p " ? " selection
+  case "$(_toLowerCase $selection)" in
+    c|cancel     ) if [[ $1 -ne 0 ]];
                      then
                        _invalidMenuAction $index
                        _showPlatformIDs $1
@@ -1355,7 +1359,7 @@ function _showPlatformIDs()
                    fi
                    ;;
 
-    e|E          ) if [[ $1 -eq 0 ]];
+    e|exit       ) if [[ $1 -eq 0 ]];
                      then
                        _invalidMenuAction $index+6
                        _showPlatformIDs $1
@@ -1499,6 +1503,7 @@ function _getOffset()
 
       local matchingData=$(xxd -s +$dataSegmentOffset -l $dataSegmentLength "$TARGET_FILE" | grep "$platformIDString" | tr -d ':')
       local data=($matchingData);
+
       let fileOffset="0x${data[0]}"
 
       if [[ fileOffset -gt 0 ]];
@@ -1629,15 +1634,20 @@ function _confirmed()
 {
   local answer
 
-  read -p "$1? (y/n) " answer
-  case "$answer" in
-    y|Y) return 0 ;;
-    n|N) return 1 ;;
-    *  ) _PRINT_ERROR 'Invalid choice ... \n       Retrying '
-         _showDelayedDots
-         _clearLines 3
-         _confirmed "$1"
-         ;;
+  printf "$1 (${STYLE_UNDERLINED}Y${STYLE_RESET}es/${STYLE_UNDERLINED}N${STYLE_RESET}o)"
+  read -p " ? " answer
+  case "$(_toLowerCase $answer)" in
+    y|yes) return 0
+           ;;
+
+    n|no ) return 1
+           ;;
+
+    *    ) _PRINT_ERROR 'Invalid choice ... \n       Retrying '
+           _showDelayedDots
+           _clearLines 3
+           _confirmed "$1"
+          ;;
   esac
 }
 
@@ -1723,12 +1733,12 @@ function _hexToPortNumber()
 
 function _savePlatformData()
 {
-  local data index
+  local data index noDataFile
   let bytesPerRow=gBytesPerRow/2
   let bytesPerRow-=1
   let index=0
   #
-  # Skip checksum checks and confirmation?
+  # Should we skip checksum checks and confirmation?
   #
   if [[ $# -eq 1 ]];
     then
@@ -1746,10 +1756,20 @@ function _savePlatformData()
         echo "${gDWords[index++]}" >> /tmp/framebuffer.dat
       done
       #
-      # The data should now be saved so let's copy the file.
+      # Do we need to save the data?
       #
-      cp /tmp/framebuffer.dat $gDataFile
+      if [[ $1 -eq 1 ]];
+        then
+          #
+          # Yes, but we just copy the file.
+          #
+          cp /tmp/framebuffer.dat $gDataFile
+      fi
     else
+      if [[ ! -e $gDataFile ]];
+        then
+          let noDataFile=1
+      fi
       #
       # step 1: echo gDWords without the trailing newlines character (bash only).
       # step 2: remove spaces.
@@ -1765,7 +1785,7 @@ function _savePlatformData()
       #
       # Different checksums?
       #
-      if [[ dataCRC -ne fileCRC ]];
+      if [[ dataCRC -ne fileCRC || noDataFile -eq 1 ]];
         then
           #
           # Yes. Ask user to confirm the action.
@@ -1877,10 +1897,10 @@ function _validateMenuAction()
   local action=$4
   local portMenuFlag=$5
 
-  echo ''
-  read -p "$text (Cancel/1-$items) ? " choice
-  case $choice in
-    c|C          ) _clearLines $items+4
+  printf "\n$text (${STYLE_UNDERLINED}C${STYLE_RESET}ancel/1-$items)"
+  read -p " ? " choice
+  case "$(_toLowerCase $choice)" in
+    c|cancel     ) _clearLines $items+4
 
                    if [[ $action -eq 0 ]];
                      then
@@ -2259,7 +2279,7 @@ function _doAction()
              _showPortData
              ;;
 
-        9  ) _savePlatformData
+        9  ) _savePlatformData 1
              /usr/bin/nano $gDataFile
              _getDWords 1
              _showModifiedData
@@ -2269,6 +2289,11 @@ function _doAction()
                then
                  _updatePlatformData
                  _patchFile "patch"
+
+                 if [[ $? -eq 1 ]];
+                   then
+                     ..
+                 fi
                else
                  _clearLines $items+1
                  _showMenu
@@ -2572,14 +2597,14 @@ function _showMenu()
 
   printf "$gModuleName.kext\n"
   printf "[ U ] Undo frame buffer changes\n\n"
-
-  read -p "Please choose the action to perform (Exit/1-9/G/P/U) ? " choice
+  printf "Please choose the action to perform (${STYLE_UNDERLINED}E${STYLE_RESET}xit/1-9/G/P/U)"
+  read -p " ? " choice
   case "$(_toLowerCase $choice)" in
     [1-9gpu]) _clearLines 16
               _doAction $choice
               ;;
 
-    e|E     ) _clearLines 16
+    e|exit  ) _clearLines 16
               _savePlatformData
               echo 'Done'
               exit 0
@@ -2605,20 +2630,20 @@ function _showPortMenu()
   printf "[ 5 ] Change the ${COLOR_PURPLE}connector attribute${COLOR_END}\n"
   printf "\n"
 
-  read -p "Please choose the action to perform (Back/1-5) ? " choice
+  printf "Please choose the action to perform (${STYLE_UNDERLINED}B${STYLE_RESET}ack/1-5)"
+  read -p " ? " choice
   case "$(_toLowerCase $choice)" in
-    [1-5]) _clearLines 9
-           _doAction $choice 1
-           ;;
+    [1-5] ) _clearLines 9
+            _doAction $choice 1
+            ;;
 
-    b|B  ) _clearLines 15
-           _showData 1
+    b|back) _clearLines 15
+            _showData 1
+            ;;
 
-           ;;
-
-    *    ) _invalidMenuAction 5
-           _showPortMenu
-           ;;
+    *     ) _invalidMenuAction 5
+            _showPortMenu
+            ;;
   esac
 }
 
@@ -2699,46 +2724,26 @@ function _getDWords()
   if [[ $# -eq 0 ]];
     then
       #
-      # Yes. Extract data from kext and create data file (if confirmed).
+      # Yes. Extract data from kext and save it in postscript format.
       #
       xxd -s $fileOffset -l $gDataBytes -ps "$TARGET_FILE" | tr -d '\n' > /tmp/framebuffer.dat
-
+      #
+      # Collect the new data in postscript format.
+      #
       local asci=$(cat /tmp/framebuffer.dat)
-
+      #
+      # Convert data in postscript format to dwords.
+      #
       while [[ index -lt dwords ]]
       do
         gDWords[index++]=${asci:i:4}
         let i+=4
       done
-
-      if [[ ! -e $gDataFile ]];
-        then
-          _savePlatformData 1
-        else
-          if [[ -e $gDataFile ]];
-            then
-              echo ''
-              #
-              # Ask for confirmation before overwriting an older data file with the data from the kext.
-              #
-              if ( _confirmed "Do you want to overwrite $gDataFile" );
-                then
-                  cp /tmp/framebuffer.dat $gDataFile
-                else
-                  #
-                  # Copy the data file to the /tmp/ directory (used to detect data file changes).
-                  #
-                  if [[ -e $gDataFile ]];
-                    then
-                      cp $gDataFile /tmp/framebuffer.dat
-                  fi
-              fi
-
-              _clearLines 2
-            else
-              cp /tmp/framebuffer.dat $gDataFile
-          fi
-      fi
+      #
+      # Argument '1' is normally used to skip the check checks and confirmation, but we use
+      # '2' here to also make it skip the copy action (would otherwise overwrite data file).
+      #
+      _savePlatformData 2
     else
       #
       # No (argument 1 given). Use data file (if we have one).
@@ -2855,11 +2860,11 @@ function _showData()
       let offset+=16
       printf "%08x: ${COLOR_BLUE}${gDWords[32]:0:2}${COLOR_END}${gDWords[32]:2:2} ${gDWords[33]} " $offset
       printf "${COLOR_ORANGE}${gDWords[34]} ${gDWords[35]}${COLOR_END} ${gDWords[36]} ${gDWords[37]} ${COLOR_BLUE}${gDWords[38]:0:2}${COLOR_END}"
-      printf "${gDWords[38]:2:2} ${gDWords[39]} (port ${gPortNumbers[2]}, ${gConnectorNames[2]} connector / port ${gPortNumbers[3]})\n"
+      printf "${gDWords[38]:2:2} ${gDWords[39]} (port ${gPortNumbers[2]}, ${gConnectorNames[2]} connector / port ${gPortNumbers[3]} ...\n"
 
       let offset+=16
       printf "%08x: ${COLOR_ORANGE}${gDWords[40]} ${gDWords[41]}${COLOR_END} ${gDWords[42]} ${gDWords[43]} " $offset
-      printf "${COLOR_GREY}${gDWords[44]} ${gDWords[45]}${COLOR_END} ${gDWords[46]} ${gDWords[47]} (${gConnectorNames[3]} connector)\n"
+      printf "${COLOR_GREY}${gDWords[44]} ${gDWords[45]}${COLOR_END} ${gDWords[46]} ${gDWords[47]}  ${gConnectorNames[3]} connector)\n"
 
       let offset+=16
       printf "%08x: ${gDWords[48]} ${gDWords[49]} ${gDWords[50]} ${gDWords[51]} ${gDWords[52]} ${gDWords[53]} ${gDWords[54]} ${gDWords[55]}\n\n" $offset
@@ -2984,12 +2989,12 @@ function _checkForDataFile()
 
           _validateMenuAction "Please choose a data file" $index 0 _checkForDataFile
 
-          case "$choice" in
-            c|C         ) echo 'Done'
+          case "$(_toLowerCase $choice)" in
+            c|cancel    ) echo 'Done'
                           exit
                           ;;
 
-            n|N         ) let gDataFileSelected=0
+            n|no        ) let gDataFileSelected=0
                           ;;
 
             [[:digit:]]*) if (( choice > 0 && choice < index ));
@@ -3022,25 +3027,25 @@ function _checkForDataFile()
 
           printf "The following data file was found:\n\n"
           printf "[ 1 ] $filename\n\n"
+          printf "Do you want to use it (${STYLE_UNDERLINED}Y${STYLE_RESET}es/${STYLE_UNDERLINED}N${STYLE_RESET}o)"
+          read -p " ? " choice
+            case "$(_toLowerCase $choice)" in
+              1|y|yes) let gDataFileSelected=1
+                       #
+                       # Strip 'Snb-', 'Capri-' or 'Azul-' and '.dat'.
+                       #
+                       gPlatformID=$(echo $filename | sed -e "s/$target-//" -e "s/\.dat//")
+                       _clearLines 5
+                       ;;
 
-          read -p "Do you want to use it (y/n) ? " choice
-            case "$choice" in
-              1|y|Y) let gDataFileSelected=1
-                     #
-                     # Strip 'Snb-', 'Capri-' or 'Azul-' and '.dat'.
-                     #
-                     gPlatformID=$(echo $filename | sed -e "s/$target-//" -e "s/\.dat//")
-                     _clearLines 5
-                     ;;
+              n|no   ) let gDataFileSelected=0
+                       _clearLines 5
+                       ;;
 
-              n|N  ) let gDataFileSelected=0
-                     _clearLines 5
-                     ;;
-
-              *    ) let gDataFileSelected=0
-                     _invalidMenuAction 1
-                     _checkForDataFile
-                     ;;
+              *      ) let gDataFileSelected=0
+                       _invalidMenuAction 1
+                       _checkForDataFile
+                       ;;
           esac
       fi
   fi
@@ -3188,6 +3193,11 @@ function _main()
                   let gRowsInTable=8
                   ;;
           esac
+          #
+          # FIXME !!!
+          #
+          # gRowsInTable is 7 on Lion/Mountain Lion when you edit the Yosemite kext!
+
           #
           # Override the default number of bytes (at top of script).
           #
