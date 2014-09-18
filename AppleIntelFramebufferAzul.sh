@@ -1612,17 +1612,22 @@ function _patchFile()
           printf "Exiting ...\n"
           exit -1
         else
-          echo "---------------------------------------------------------"
+          echo '--------------------------------------------------------------------------'
           echo $PATCHED_PLATFORM_INFO | xxd -c $gDataBytes -r | dd of="$TARGET_FILE" bs=1 seek=${fileOffset} conv=notrunc
+          echo ''
       fi
     else
-      echo "---------------------------------------------------------"
+      echo '--------------------------------------------------------------------------'
       echo $FACTORY_PLATFORM_INFO | xxd -c $gDataBytes -r | dd of="$TARGET_FILE" bs=1 seek=${fileOffset} conv=notrunc
+      echo ''
   fi
 
   if ( _confirmed 'Do you want to reboot now' );
     then
       reboot now
+    else
+      _clearLines 1
+      echo 'Done'
   fi
 }
 
@@ -2287,13 +2292,9 @@ function _doAction()
 
         p|P) if ( _confirmed 'Are you sure that you want to patch the kext with this data' );
                then
+                 _clearLines 2
                  _updatePlatformData
                  _patchFile "patch"
-
-                 if [[ $? -eq 1 ]];
-                   then
-                     ..
-                 fi
                else
                  _clearLines $items+1
                  _showMenu
